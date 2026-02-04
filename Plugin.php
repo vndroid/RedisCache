@@ -234,7 +234,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             $logMessage .=
                 "\n" .
                 date("[Y-m-d H:i:s]") .
-                " Redis writable test successful: " .
+                " redis writable-test successful: " .
                 $retrievedValue;
 
             // 删除测试数据
