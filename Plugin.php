@@ -260,7 +260,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
      * @param Widget_Archive $archive
      * @return void
      */
-    public static function beforeRender($archive): void
+    public static function beforeRender($archive)
     {
         // 管理员登录时不使用缓存
         if (Typecho_Widget::widget("Widget_User")->hasLogin()) {
@@ -286,18 +286,8 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             $config = $options->plugin("RedisCache");
 
             if (isset($config->debug) && $config->debug == "1") {
-                $logFile =
-                    __DIR__ .
-                    "/cache-" .
-                    date("Y-m-d") .
-                    ".log";
-                $logMessage =
-                    date("[Y-m-d H:i:s]") .
-                    " Cache HIT: " .
-                    $requestUri .
-                    " (Key: " .
-                    $cacheKey .
-                    ")";
+                $logFile = __DIR__ . "/cache-" . date("Y-m-d") . ".log";
+                $logMessage = date("[Y-m-d H:i:s]") . " HIT: " . $requestUri . " (Key: " . $cacheKey . ")";
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
 
@@ -349,18 +339,8 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
         $config = $options->plugin("RedisCache");
 
         if (isset($config->debug) && $config->debug == "1") {
-            $logFile =
-                __DIR__ .
-                "/logs/cache-" .
-                date("Y-m-d") .
-                ".log";
-            $logMessage =
-                date("[Y-m-d H:i:s]") .
-                " Cache MISS: " .
-                $requestUri .
-                " (Key: " .
-                $cacheKey .
-                ")";
+            $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
+            $logMessage = date("[Y-m-d H:i:s]") . " MISS: " . " KEY: (" . $cacheKey . ") URI: (" . $requestUri . ")";
             file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
         }
     }
