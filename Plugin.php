@@ -240,6 +240,27 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             // 删除测试数据
             $redis->del($testKey);
 
+            // 探测 RedisJSON 支持情况并写入日志（不影响主流程）
+            try {
+                $json = self::detectRedisJsonSupport($redis);
+                $logMessage .=
+                    "\n" .
+                    date("[Y-m-d H:i:s]") .
+                    " redis json support: " .
+                    ($json['supported'] ? 'YES' : 'NO') .
+                    " via=" .
+                    ($json['via'] ?? '-') .
+                    (empty($json['module']) ? '' : " module=" . $json['module']) .
+                    (empty($json['version']) ? '' : " ver=" . $json['version']) .
+                    (empty($json['reason']) ? '' : " reason=" . $json['reason']);
+            } catch (Throwable $e) {
+                $logMessage .=
+                    "\n" .
+                    date("[Y-m-d H:i:s]") .
+                    " redis json support: UNKNOWN reason=" .
+                    $e->getMessage();
+            }
+
             // 写入日志
             file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
 
@@ -252,6 +273,146 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             file_put_contents($logFile, $errorMessage . "\n", FILE_APPEND);
             return null;
         }
+    }
+
+    /**
+     * 探测当前 Redis 实例是否支持 RedisJSON（或老版本 ReJSON）
+     *
+     * 返回结构：
+     * - supported: bool 是否支持 JSON 命令
+     * - via: string 使用的探测方式（module_list/command_info/info_modules/error）
+     * - module: ?string 命中的模块名（ReJSON/RedisJSON），若有
+     * - version: ?string 模块版本（如果可获取）
+     * - reason: ?string 不支持/失败原因（如果有）
+     */
+    private static function detectRedisJsonSupport(Redis $redis): array
+    {
+        $result = [
+            'supported' => false,
+            'via' => null,
+            'module' => null,
+            'version' => null,
+            'reason' => null,
+        ];
+
+        // 1) 优先尝试 MODULE LIST（需要权限，且部分代理/云服务可能禁用）
+        try {
+            if (method_exists($redis, 'rawCommand')) {
+                $modules = $redis->rawCommand('MODULE', 'LIST');
+
+                // phpredis 可能返回：
+                // - array of arrays: [ [ 'name','ReJSON','ver',20000,...], ... ]
+                // - array of associative arrays (取决于版本/redis reply)
+                if (is_array($modules)) {
+                    foreach ($modules as $moduleInfo) {
+                        if (!is_array($moduleInfo)) {
+                            continue;
+                        }
+
+                        $name = null;
+                        $ver = null;
+
+                        // 尝试按键值对解析
+                        if (isset($moduleInfo['name'])) {
+                            $name = (string) $moduleInfo['name'];
+                        }
+                        if (isset($moduleInfo['ver'])) {
+                            $ver = (string) $moduleInfo['ver'];
+                        }
+
+                        // 尝试按 [key,val,key,val] 解析
+                        if ($name === null) {
+                            for ($i = 0; $i + 1 < count($moduleInfo); $i += 2) {
+                                $k = $moduleInfo[$i] ?? null;
+                                $v = $moduleInfo[$i + 1] ?? null;
+                                if ($k === 'name') {
+                                    $name = is_string($v) ? $v : (string) $v;
+                                } elseif ($k === 'ver') {
+                                    $ver = is_string($v) ? $v : (string) $v;
+                                }
+                            }
+                        }
+
+                        if ($name !== null) {
+                            $lower = strtolower($name);
+                            if ($lower === 'rejson' || $lower === 'redisjson') {
+                                $result['supported'] = true;
+                                $result['via'] = 'module_list';
+                                $result['module'] = $name;
+                                $result['version'] = $ver;
+                                return $result;
+                            }
+                        }
+                    }
+
+                    $result['via'] = 'module_list';
+                    $result['reason'] = 'module_not_loaded';
+                } else {
+                    $result['via'] = 'module_list';
+                    $result['reason'] = 'unexpected_reply';
+                }
+            } else {
+                $result['via'] = 'module_list';
+                $result['reason'] = 'rawCommand_not_available';
+            }
+        } catch (Throwable $e) {
+            // 常见：NOPERM this user has no permissions...
+            $result['via'] = 'module_list';
+            $result['reason'] = 'module_list_error: ' . $e->getMessage();
+        }
+
+        // 2) 降级：COMMAND INFO JSON.GET（只要命令存在即可判断）
+        try {
+            if (method_exists($redis, 'rawCommand')) {
+                $info = $redis->rawCommand('COMMAND', 'INFO', 'JSON.GET');
+                // COMMAND INFO 返回：不存在时为 [null] 或空数组（不同版本略有差异）
+                if (is_array($info) && count($info) > 0 && $info[0] !== null && $info !== [false]) {
+                    $result['supported'] = true;
+                    $result['via'] = 'command_info';
+                    $result['module'] = $result['module'] ?? 'RedisJSON';
+                    return $result;
+                }
+
+                if ($result['via'] === null) {
+                    $result['via'] = 'command_info';
+                    $result['reason'] = 'command_not_found';
+                }
+            }
+        } catch (Throwable $e) {
+            if ($result['via'] === null || $result['via'] === 'module_list') {
+                $result['via'] = 'command_info';
+                $result['reason'] = 'command_info_error: ' . $e->getMessage();
+            }
+        }
+
+        // 3) 再降级：INFO MODULES（Redis >= 6.0 通常可用，但也可能被禁用）
+        try {
+            // phpredis 支持 info()，参数可能是字符串 section
+            $infoStr = $redis->info('modules');
+            if (is_array($infoStr)) {
+                // phpredis 有时会把 INFO 转成数组；modules 可能以字符串形式出现在某些键里
+                $flat = json_encode($infoStr);
+                if (is_string($flat)) {
+                    $lower = strtolower($flat);
+                    if (str_contains($lower, 'rejson') || str_contains($lower, 'redisjson')) {
+                        $result['supported'] = true;
+                        $result['via'] = 'info_modules';
+                        $result['module'] = $result['module'] ?? 'RedisJSON';
+                        return $result;
+                    }
+                }
+
+                $result['via'] = $result['via'] ?? 'info_modules';
+                $result['reason'] = $result['reason'] ?? 'module_not_found_in_info';
+            }
+        } catch (Throwable $e) {
+            $result['via'] = $result['via'] ?? 'info_modules';
+            $result['reason'] = $result['reason'] ?? ('info_modules_error: ' . $e->getMessage());
+        }
+
+        $result['via'] = $result['via'] ?? 'error';
+        $result['reason'] = $result['reason'] ?? 'unknown';
+        return $result;
     }
 
     /**
