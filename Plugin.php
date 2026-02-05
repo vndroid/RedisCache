@@ -126,6 +126,16 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
         );
         $form->addInput($prefix);
 
+        $prefix = new Typecho_Widget_Helper_Form_Element_Text(
+            "uriPrefix",
+            null,
+            "/",
+            _t("路径前缀"),
+            _t("按路径前缀进行缓存，防止缓存不需要的页面，多个前缀请用英文逗号分隔"),
+        );
+
+        $form->addInput($prefix);
+
         $enableCache = new Typecho_Widget_Helper_Form_Element_Radio(
             "enableCache",
             ["1" => _t("启用"), "0" => _t("禁用")],
@@ -473,7 +483,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
      *
      * @return void
      */
-    public static function afterRender()
+    public static function afterRender(): void
     {
         // 管理员登录时不缓存
         if (Typecho_Widget::widget("Widget_User")->hasLogin()) {
