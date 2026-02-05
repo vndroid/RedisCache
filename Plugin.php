@@ -74,26 +74,38 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
     {
         Helper::removePanel(1, "RedisCache/manage-cache.php");
 
-        // 清理所有以 prefix 开头的 Redis 缓存
-        try {
-            $redis = self::initRedis();
-            if ($redis) {
-                $pattern = self::$prefix . "*";
-                $keys = $redis->keys($pattern);
+        // 获取配置，检查禁用时是否需要清理缓存
+        $options = Helper::options();
+        $config = $options->plugin("RedisCache");
+        $shouldCleanCache = !isset($config->cleanCacheOnDeactivate) || $config->cleanCacheOnDeactivate == "1";
 
-                if (!empty($keys)) {
-                    $redis->del($keys);
+        // 如果设置为清理缓存，则清理所有以 prefix 开头的 Redis 缓存
+        if ($shouldCleanCache) {
+            try {
+                $redis = self::initRedis();
+                if ($redis) {
+                    $pattern = self::$prefix . "*";
+                    $keys = $redis->keys($pattern);
 
-                    // 记录清理日志
-                    $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-                    $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Cleaned " . count($keys) . " cache keys";
-                    file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+                    if (!empty($keys)) {
+                        $redis->del($keys);
+
+                        // 记录清理日志
+                        $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
+                        $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Cleaned " . count($keys) . " cache keys";
+                        file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+                    }
                 }
+            } catch (Throwable $e) {
+                // 禁用插件时清理缓存失败不应该影响插件禁用，仅记录日志
+                $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
+                $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Failed to clean cache - " . $e->getMessage();
+                file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
-        } catch (Throwable $e) {
-            // 禁用插件时清理缓存失败不应该影响插件禁用，仅记录日志
+        } else {
+            // 记录日志：不清理缓存
             $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-            $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Failed to clean cache - " . $e->getMessage();
+            $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Cache cleanup skipped by user setting";
             file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
         }
 
@@ -177,6 +189,15 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             _t("启用后会记录更详细的日志信息"),
         );
         $form->addInput($debug);
+
+        $cleanCacheOnDeactivate = new Typecho_Widget_Helper_Form_Element_Radio(
+            "cleanCacheOnDeactivate",
+            ["1" => _t("清理"), "0" => _t("保留")],
+            "1",
+            _t("禁用时清理缓存"),
+            _t("禁用插件时是否清理 Redis 中的所有缓存数据，默认清理"),
+        );
+        $form->addInput($cleanCacheOnDeactivate);
     }
 
     /**
