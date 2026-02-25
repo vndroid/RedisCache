@@ -22,7 +22,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
 }
 
 /**
- * 缓存加速插件 - 将文章内容缓存到 Redis 中，提升访问速度
+ * Redis 缓存提速插件 for Typecho
  *
  * @package RedisCache
  * @author Vex
