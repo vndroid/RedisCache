@@ -54,7 +54,7 @@ class Plugin implements PluginInterface
      * @return string
      * @throws Exception
      */
-    public static function activate(): string
+    public static function activate()
     {
         // 检查 PHP 扩展
         if (!extension_loaded('redis')) {
@@ -83,7 +83,7 @@ class Plugin implements PluginInterface
      * 禁用插件方法,如果禁用失败,直接抛出异常
      * @throws Exception
      */
-    public static function deactivate(): void
+    public static function deactivate()
     {
         // 获取配置，检查禁用时是否需要清理缓存
         $config = Helper::options()->plugin('RedisCache');
@@ -121,7 +121,7 @@ class Plugin implements PluginInterface
      *
      * @param Form $form 配置面板
      */
-    public static function config(Form $form): void
+    public static function config(Form $form)
     {
         $enableCache = new Radio(
             'enableCache',
@@ -210,7 +210,7 @@ class Plugin implements PluginInterface
      *
      * @param Form $form
      */
-    public static function personalConfig(Form $form): void
+    public static function personalConfig(Form $form)
     {
     }
 
