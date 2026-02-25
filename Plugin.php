@@ -2,8 +2,10 @@
 
 namespace TypechoPlugin\RedisCache;
 
+use Redis;
+use Throwable;
+use Typecho\Plugin\Exception;
 use Typecho\Plugin\PluginInterface;
-use Typecho\Plugin\Exception as PluginException;
 use Typecho\Widget\Helper\Form;
 use Typecho\Widget\Helper\Form\Element\Text;
 use Typecho\Widget\Helper\Form\Element\Password;
@@ -32,7 +34,7 @@ class Plugin implements PluginInterface
     /**
      * 初始化实例
      */
-    private static ?\Redis $redis = null;
+    private static ?Redis $redis = null;
 
     /**
      * 统一缓存前缀
@@ -45,13 +47,20 @@ class Plugin implements PluginInterface
     private static int $expire = 3600; // 默认 1 小时
 
     private static string $pluginName = 'RedisCache';
+
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
      *
      * @return string
+     * @throws Exception
      */
     public static function activate(): string
     {
+        // 检查 PHP 扩展
+        if (!extension_loaded('redis')) {
+            throw new Exception('需要 PHP redis 扩展');
+        }
+
         // 在内容渲染前尝试从缓存获取
         Archive::pluginHandle()->beforeRender = [self::class, 'beforeRender'];
 
@@ -72,6 +81,7 @@ class Plugin implements PluginInterface
 
     /**
      * 禁用插件方法,如果禁用失败,直接抛出异常
+     * @throws Exception
      */
     public static function deactivate(): void
     {
@@ -94,7 +104,7 @@ class Plugin implements PluginInterface
                         file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
                     }
                 }
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 $logFile = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
                 $logMessage = date('[Y-m-d H:i:s]') . ' Plugin Deactivate: Failed to clean cache - ' . $e->getMessage();
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
@@ -207,9 +217,10 @@ class Plugin implements PluginInterface
     /**
      * 初始化Redis连接
      *
-     * @return \Redis|null
+     * @return Redis|null
+     * @throws Exception
      */
-    public static function initRedis(): ?\Redis
+    public static function initRedis(): ?Redis
     {
         if (self::$redis !== null) {
             return self::$redis;
@@ -246,7 +257,7 @@ class Plugin implements PluginInterface
             }
 
             // 尝试连接Redis
-            $redis = new \Redis();
+            $redis = new Redis();
             $connected = $redis->connect($config->host, intval($config->port), 3);
 
             if (!$connected) {
@@ -293,7 +304,7 @@ class Plugin implements PluginInterface
                     (empty($json['module']) ? '' : ' module=' . $json['module']) .
                     (empty($json['version']) ? '' : ' ver=' . $json['version']) .
                     (empty($json['reason']) ? '' : ' reason=' . $json['reason']);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis json support: UNKNOWN reason=' . $e->getMessage();
             }
 
@@ -318,10 +329,10 @@ class Plugin implements PluginInterface
      * - version: ?string 模块版本（如果可获取）
      * - reason: ?string 不支持/失败原因（如果有）
      *
-     * @param \Redis $redis
+     * @param Redis $redis
      * @return array
      */
-    private static function detectRedisJsonSupport(\Redis $redis): array
+    private static function detectRedisJsonSupport(Redis $redis): array
     {
         $result = [
             'supported' => false,
@@ -386,7 +397,7 @@ class Plugin implements PluginInterface
                 $result['via']    = 'module_list';
                 $result['reason'] = 'rawCommand_not_available';
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $result['via']    = 'module_list';
             $result['reason'] = 'module_list_error: ' . $e->getMessage();
         }
@@ -407,7 +418,7 @@ class Plugin implements PluginInterface
                     $result['reason'] = 'command_not_found';
                 }
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             if ($result['via'] === null || $result['via'] === 'module_list') {
                 $result['via']    = 'command_info';
                 $result['reason'] = 'command_info_error: ' . $e->getMessage();
@@ -432,7 +443,7 @@ class Plugin implements PluginInterface
                 $result['via']    = $result['via'] ?? 'info_modules';
                 $result['reason'] = $result['reason'] ?? 'module_not_found_in_info';
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $result['via']    = $result['via'] ?? 'info_modules';
             $result['reason'] = $result['reason'] ?? ('info_modules_error: ' . $e->getMessage());
         }
@@ -447,6 +458,7 @@ class Plugin implements PluginInterface
      *
      * @param Archive $archive
      * @return void
+     * @throws \Typecho\Db\Exception|Exception
      */
     public static function beforeRender(Archive $archive): void
     {
@@ -515,7 +527,7 @@ class Plugin implements PluginInterface
         $matched = false;
         foreach ($uriPrefixes as $p) {
             // 前缀为 "/" 表示缓存所有路径
-            if ($p === '/' || strpos($requestUri, $p) === 0) {
+            if ($p === '/' || str_starts_with($requestUri, $p)) {
                 $matched = true;
                 break;
             }
@@ -556,6 +568,7 @@ class Plugin implements PluginInterface
      * @param array $contents 内容数组
      * @param \Widget\Base\Contents $widget 编辑组件
      * @return void
+     * @throws Exception
      */
     public static function clearCacheOnPublish(array $contents, $widget): void
     {
@@ -567,6 +580,7 @@ class Plugin implements PluginInterface
      *
      * @param \Widget\Feedback|\Widget\Comments\Edit $widget 评论组件
      * @return void
+     * @throws Exception
      */
     public static function clearCacheOnComment($widget): void
     {
@@ -577,6 +591,7 @@ class Plugin implements PluginInterface
      * 清除所有页面缓存
      *
      * @return void
+     * @throws Exception
      */
     private static function flushPageCache(): void
     {
