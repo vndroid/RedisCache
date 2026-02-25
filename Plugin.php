@@ -1,5 +1,24 @@
 <?php
 
+namespace TypechoPlugin\RedisCache;
+
+use Typecho\Plugin\PluginInterface;
+use Typecho\Plugin\Exception as PluginException;
+use Typecho\Widget\Helper\Form;
+use Typecho\Widget\Helper\Form\Element\Text;
+use Typecho\Widget\Helper\Form\Element\Password;
+use Typecho\Widget\Helper\Form\Element\Radio;
+use Utils\Helper;
+use Widget\Archive;
+use Widget\User;
+use Widget\Contents\Post\Edit as PostEdit;
+use Widget\Contents\Page\Edit as PageEdit;
+use Widget\Feedback;
+
+if (!defined('__TYPECHO_ROOT_DIR__')) {
+    exit;
+}
+
 /**
  * 缓存加速插件 - 将文章内容缓存到 Redis 中，提升访问速度
  *
@@ -8,12 +27,12 @@
  * @version 0.1.0
  * @link https://github.com/vndroid/RedisCache
  */
-class RedisCache_Plugin implements Typecho_Plugin_Interface
+class Plugin implements PluginInterface
 {
     /**
      * 初始化实例
      */
-    private static ?Redis $redis = null;
+    private static ?\Redis $redis = null;
 
     /**
      * 统一缓存前缀
@@ -27,45 +46,25 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
 
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
-     * @access public
+     *
      * @return string
-     * @throws Typecho_Plugin_Exception
      */
     public static function activate(): string
     {
-        // 初始化Redis连接
-        Typecho_Plugin::factory("index.php")->begin = [
-            "RedisCache_Plugin",
-            "initRedis",
-        ];
-
         // 在内容渲染前尝试从缓存获取
-        Typecho_Plugin::factory("Widget_Archive")->beforeRender = [
-            "RedisCache_Plugin",
-            "beforeRender",
-        ];
+        Archive::pluginHandle()->beforeRender = [self::class, 'beforeRender'];
 
         // 在内容渲染后缓存内容
-        Typecho_Plugin::factory("Widget_Archive")->afterRender = [
-            "RedisCache_Plugin",
-            "afterRender",
-        ];
+        Archive::pluginHandle()->afterRender = [self::class, 'afterRender'];
 
-        // 当内容更新时清除缓存
-        Typecho_Plugin::factory("Widget_Contents_Post_Edit")->finishPublish = [
-            "RedisCache_Plugin",
-            "clearCache",
-        ];
-        Typecho_Plugin::factory("Widget_Contents_Page_Edit")->finishPublish = [
-            "RedisCache_Plugin",
-            "clearCache",
-        ];
+        // 当文章更新时清除缓存
+        PostEdit::pluginHandle()->finishPublish = [self::class, 'clearCacheOnPublish'];
 
-        // 当评论更新时清除缓存
-        Typecho_Plugin::factory("Widget_Feedback")->finishComment = [
-            "RedisCache_Plugin",
-            "clearCache",
-        ];
+        // 当页面更新时清除缓存
+        PageEdit::pluginHandle()->finishPublish = [self::class, 'clearCacheOnPublish'];
+
+        // 当评论提交时清除缓存
+        Feedback::pluginHandle()->finishComment = [self::class, 'clearCacheOnComment'];
 
         return _t('缓存插件已启用，请先配置<a href="options-plugin.php?config=' . self::$pluginName . '">缓存连接方式</a>');
     }
@@ -73,159 +72,152 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
     /**
      * 禁用插件方法,如果禁用失败,直接抛出异常
      */
-    public static function deactivate(): string
+    public static function deactivate(): void
     {
         // 获取配置，检查禁用时是否需要清理缓存
-        $options = Helper::options();
-        $config = $options->plugin("RedisCache");
-        $shouldCleanCache = !isset($config->cleanCacheOnDeactivate) || $config->cleanCacheOnDeactivate == "1";
+        $config = Helper::options()->plugin('RedisCache');
+        $shouldCleanCache = !isset($config->cleanCacheOnDeactivate) || $config->cleanCacheOnDeactivate == '1';
 
-        // 如果设置为清理缓存，则清理所有以 prefix 开头的 Redis 缓存
         if ($shouldCleanCache) {
             try {
                 $redis = self::initRedis();
                 if ($redis) {
-                    $pattern = self::$prefix . "*";
+                    $pattern = self::$prefix . '*';
                     $keys = $redis->keys($pattern);
 
                     if (!empty($keys)) {
                         $redis->del($keys);
 
-                        // 记录清理日志
-                        $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-                        $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Cleaned " . count($keys) . " cache keys";
+                        $logFile = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
+                        $logMessage = date('[Y-m-d H:i:s]') . ' Plugin Deactivate: Cleaned ' . count($keys) . ' cache keys';
                         file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
                     }
                 }
-            } catch (Throwable $e) {
-                // 禁用插件时清理缓存失败不应该影响插件禁用，仅记录日志
-                $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-                $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Failed to clean cache - " . $e->getMessage();
+            } catch (\Throwable $e) {
+                $logFile = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
+                $logMessage = date('[Y-m-d H:i:s]') . ' Plugin Deactivate: Failed to clean cache - ' . $e->getMessage();
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
         } else {
-            // 记录日志：不清理缓存
-            $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-            $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Cache cleanup skipped by user setting";
+            $logFile = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
+            $logMessage = date('[Y-m-d H:i:s]') . ' Plugin Deactivate: Cache cleanup skipped by user setting';
             file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
         }
-
-        return _t("缓存插件已禁用");
     }
 
     /**
      * 获取插件配置面板
+     *
+     * @param Form $form 配置面板
      */
-    public static function config(Typecho_Widget_Helper_Form $form)
+    public static function config(Form $form): void
     {
-        $host = new Typecho_Widget_Helper_Form_Element_Text(
-            "host",
+        $host = new Text(
+            'host',
             null,
-            "127.0.0.1",
-            _t("Redis 服务地址"),
-            _t("输入 Redis 服务主机地址，默认为 127.0.0.1"),
+            '127.0.0.1',
+            _t('Redis 服务地址'),
+            _t('输入 Redis 服务主机地址，默认为 127.0.0.1')
         );
         $form->addInput($host);
 
-        $port = new Typecho_Widget_Helper_Form_Element_Text(
-            "port",
+        $port = new Text(
+            'port',
             null,
-            "6379",
-            _t("Redis 服务端口"),
-            _t("输入 Redis 服务端口，默认为 6379"),
+            '6379',
+            _t('Redis 服务端口'),
+            _t('输入 Redis 服务端口，默认为 6379')
         );
         $form->addInput($port);
 
-        $password = new Typecho_Widget_Helper_Form_Element_Password(
-            "password",
+        $password = new Password(
+            'password',
             null,
-            "",
-            _t("Redis 服务密码"),
-            _t("如果 Redis 服务启用了密码，请输入密码，否则留空"),
+            '',
+            _t('Redis 服务密码'),
+            _t('如果 Redis 服务启用了密码，请输入密码，否则留空')
         );
         $form->addInput($password);
 
-        $expire = new Typecho_Widget_Helper_Form_Element_Text(
-            "expire",
+        $expire = new Text(
+            'expire',
             null,
-            "3600",
-            _t("过期时间（秒）"),
-            _t("缓存过期时间，默认为一小时（3600秒）"),
+            '3600',
+            _t('过期时间（秒）'),
+            _t('缓存过期时间，默认为一小时（3600秒）')
         );
         $form->addInput($expire);
 
-        $prefix = new Typecho_Widget_Helper_Form_Element_Text(
-            "prefix",
+        $prefix = new Text(
+            'prefix',
             null,
-            "typecho_cache:",
-            _t("缓存前缀"),
-            _t("缓存键名的前缀，用于区分不同应用的缓存"),
+            'typecho_cache:',
+            _t('缓存前缀'),
+            _t('缓存键名的前缀，用于区分不同应用的缓存')
         );
         $form->addInput($prefix);
 
-        $prefix = new Typecho_Widget_Helper_Form_Element_Text(
-            "uriPrefix",
+        $uriPrefix = new Text(
+            'uriPrefix',
             null,
-            "/",
-            _t("路径前缀"),
-            _t("按路径前缀进行缓存，防止缓存不需要的页面，多个前缀请用英文逗号分隔"),
+            '/',
+            _t('路径前缀'),
+            _t('按路径前缀进行缓存，防止缓存不需要的页面，多个前缀请用英文逗号分隔')
         );
+        $form->addInput($uriPrefix);
 
-        $form->addInput($prefix);
-
-        $enableCache = new Typecho_Widget_Helper_Form_Element_Radio(
-            "enableCache",
-            ["1" => _t("启用"), "0" => _t("禁用")],
-            "1",
-            _t("启用缓存"),
-            _t("是否启用 Redis 缓存功能"),
+        $enableCache = new Radio(
+            'enableCache',
+            ['1' => _t('启用'), '0' => _t('禁用')],
+            '1',
+            _t('启用缓存'),
+            _t('是否启用 Redis 缓存功能')
         );
         $form->addInput($enableCache);
 
-        $debug = new Typecho_Widget_Helper_Form_Element_Radio(
-            "debug",
-            ["1" => _t("启用"), "0" => _t("禁用")],
-            "1",
-            _t("调试模式"),
-            _t("启用后会记录更详细的日志信息"),
+        $debug = new Radio(
+            'debug',
+            ['1' => _t('启用'), '0' => _t('禁用')],
+            '0',
+            _t('调试模式'),
+            _t('启用后会记录更详细的日志信息')
         );
         $form->addInput($debug);
 
-        $cleanCacheOnDeactivate = new Typecho_Widget_Helper_Form_Element_Radio(
-            "cleanCacheOnDeactivate",
-            ["1" => _t("清理"), "0" => _t("保留")],
-            "1",
-            _t("禁用时清理缓存"),
-            _t("禁用插件时是否清理 Redis 中的所有缓存数据，默认清理"),
+        $cleanCacheOnDeactivate = new Radio(
+            'cleanCacheOnDeactivate',
+            ['1' => _t('清理'), '0' => _t('保留')],
+            '1',
+            _t('禁用时清理缓存'),
+            _t('禁用插件时是否清理 Redis 中的所有缓存数据，默认清理')
         );
         $form->addInput($cleanCacheOnDeactivate);
     }
 
     /**
      * 个人用户的配置面板
-     * @access public
-     * @param Typecho_Widget_Helper_Form $form
-     * @return void
-     * @throws Typecho_Exception
+     *
+     * @param Form $form
      */
-    public static function personalConfig(Typecho_Widget_Helper_Form $form)
+    public static function personalConfig(Form $form): void
     {
     }
 
     /**
      * 初始化Redis连接
+     *
+     * @return \Redis|null
      */
-    public static function initRedis(): ?Redis
+    public static function initRedis(): ?\Redis
     {
         if (self::$redis !== null) {
             return self::$redis;
         }
 
-        $options = Helper::options();
-        $config = $options->plugin("RedisCache");
+        $config = Helper::options()->plugin('RedisCache');
 
         // 如果禁用缓存，直接返回
-        if (isset($config->enableCache) && $config->enableCache == "0") {
+        if (isset($config->enableCache) && $config->enableCache == '0') {
             return null;
         }
 
@@ -239,63 +231,54 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
         }
 
         // 创建日志目录
-        $logDir = __DIR__ . "/logs";
+        $logDir = __DIR__ . '/logs';
         if (!is_dir($logDir)) {
             mkdir($logDir, 0755, true);
         }
 
-        $logFile = $logDir . "/redis-" . date("Y-m-d") . ".log";
+        $logFile = $logDir . '/redis-' . date('Y-m-d') . '.log';
 
         try {
             // 检查Redis扩展是否加载
-            if (!extension_loaded("redis")) {
-                throw new Exception("PHP Redis 扩展未安装");
+            if (!extension_loaded('redis')) {
+                throw new \Exception('PHP Redis 扩展未安装');
             }
 
             // 尝试连接Redis
-            $redis = new Redis();
-            $connected = $redis->connect($config->host, $config->port, 3);
+            $redis = new \Redis();
+            $connected = $redis->connect($config->host, intval($config->port), 3);
 
             if (!$connected) {
-                throw new Exception("无法连接到 Redis 服务");
+                throw new \Exception('无法连接到 Redis 服务');
             }
 
             // 如果设置了密码，进行验证
             if (!empty($config->password)) {
                 $authResult = $redis->auth($config->password);
                 if (!$authResult) {
-                    throw new Exception("Redis 服务认证失败");
+                    throw new \Exception('Redis 服务认证失败');
                 }
             }
 
             // 检查连接
             $pong = $redis->ping();
-            if ($pong !== "+PONG" && $pong !== true) {
-                throw new Exception("Redis 服务 PING 失败");
+            if ($pong !== '+PONG' && $pong !== true) {
+                throw new \Exception('Redis 服务 PING 失败');
             }
 
-            $logMessage =
-                date("[Y-m-d H:i:s]") .
-                " redis connect successful: " .
-                $config->host .
-                ":" .
-                $config->port;
+            $logMessage = date('[Y-m-d H:i:s]') . ' redis connect successful: ' . $config->host . ':' . $config->port;
 
             // 写入测试数据
-            $testKey = self::$prefix . "test";
-            $testValue = "Hello Typecho! " . date("Y-m-d H:i:s");
+            $testKey = self::$prefix . 'test';
+            $testValue = 'Hello Typecho! ' . date('Y-m-d H:i:s');
             $redis->set($testKey, $testValue);
             $retrievedValue = $redis->get($testKey);
 
             if ($retrievedValue !== $testValue) {
-                throw new Exception("缓存测试数据写入失败");
+                throw new \Exception('缓存测试数据写入失败');
             }
 
-            $logMessage .=
-                "\n" .
-                date("[Y-m-d H:i:s]") .
-                " redis writable-test successful: " .
-                $retrievedValue;
+            $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis writable-test successful: ' . $retrievedValue;
 
             // 删除测试数据
             $redis->del($testKey);
@@ -303,33 +286,22 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             // 探测 RedisJSON 支持情况并写入日志（不影响主流程）
             try {
                 $json = self::detectRedisJsonSupport($redis);
-                $logMessage .=
-                    "\n" .
-                    date("[Y-m-d H:i:s]") .
-                    " redis json support: " .
+                $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis json support: ' .
                     ($json['supported'] ? 'YES' : 'NO') .
-                    " via=" .
-                    ($json['via'] ?? '-') .
-                    (empty($json['module']) ? '' : " module=" . $json['module']) .
-                    (empty($json['version']) ? '' : " ver=" . $json['version']) .
-                    (empty($json['reason']) ? '' : " reason=" . $json['reason']);
-            } catch (Throwable $e) {
-                $logMessage .=
-                    "\n" .
-                    date("[Y-m-d H:i:s]") .
-                    " redis json support: UNKNOWN reason=" .
-                    $e->getMessage();
+                    ' via=' . ($json['via'] ?? '-') .
+                    (empty($json['module']) ? '' : ' module=' . $json['module']) .
+                    (empty($json['version']) ? '' : ' ver=' . $json['version']) .
+                    (empty($json['reason']) ? '' : ' reason=' . $json['reason']);
+            } catch (\Throwable $e) {
+                $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis json support: UNKNOWN reason=' . $e->getMessage();
             }
 
-            // 写入日志
             file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
 
             self::$redis = $redis;
             return $redis;
-        } catch (Exception $e) {
-            // 连接失败记录日志，但不影响系统运行
-            $errorMessage =
-                date("[Y-m-d H:i:s]") . " redis connect failed: " . $e->getMessage();
+        } catch (\Exception $e) {
+            $errorMessage = date('[Y-m-d H:i:s]') . ' redis connect failed: ' . $e->getMessage();
             file_put_contents($logFile, $errorMessage . "\n", FILE_APPEND);
             return null;
         }
@@ -344,25 +316,25 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
      * - module: ?string 命中的模块名（ReJSON/RedisJSON），若有
      * - version: ?string 模块版本（如果可获取）
      * - reason: ?string 不支持/失败原因（如果有）
+     *
+     * @param \Redis $redis
+     * @return array
      */
-    private static function detectRedisJsonSupport(Redis $redis): array
+    private static function detectRedisJsonSupport(\Redis $redis): array
     {
         $result = [
             'supported' => false,
-            'via' => null,
-            'module' => null,
-            'version' => null,
-            'reason' => null,
+            'via'       => null,
+            'module'    => null,
+            'version'   => null,
+            'reason'    => null,
         ];
 
-        // 1) 优先尝试 MODULE LIST（需要权限，且部分代理/云服务可能禁用）
+        // 1) 优先尝试 MODULE LIST
         try {
             if (method_exists($redis, 'rawCommand')) {
                 $modules = $redis->rawCommand('MODULE', 'LIST');
 
-                // phpredis 可能返回：
-                // - array of arrays: [ [ 'name','ReJSON','ver',20000,...], ... ]
-                // - array of associative arrays (取决于版本/redis reply)
                 if (is_array($modules)) {
                     foreach ($modules as $moduleInfo) {
                         if (!is_array($moduleInfo)) {
@@ -372,7 +344,6 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
                         $name = null;
                         $ver = null;
 
-                        // 尝试按键值对解析
                         if (isset($moduleInfo['name'])) {
                             $name = (string) $moduleInfo['name'];
                         }
@@ -380,7 +351,6 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
                             $ver = (string) $moduleInfo['ver'];
                         }
 
-                        // 尝试按 [key,val,key,val] 解析
                         if ($name === null) {
                             for ($i = 0; $i + 1 < count($moduleInfo); $i += 2) {
                                 $k = $moduleInfo[$i] ?? null;
@@ -397,80 +367,76 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
                             $lower = strtolower($name);
                             if ($lower === 'rejson' || $lower === 'redisjson') {
                                 $result['supported'] = true;
-                                $result['via'] = 'module_list';
-                                $result['module'] = $name;
-                                $result['version'] = $ver;
+                                $result['via']       = 'module_list';
+                                $result['module']    = $name;
+                                $result['version']   = $ver;
                                 return $result;
                             }
                         }
                     }
 
-                    $result['via'] = 'module_list';
+                    $result['via']    = 'module_list';
                     $result['reason'] = 'module_not_loaded';
                 } else {
-                    $result['via'] = 'module_list';
+                    $result['via']    = 'module_list';
                     $result['reason'] = 'unexpected_reply';
                 }
             } else {
-                $result['via'] = 'module_list';
+                $result['via']    = 'module_list';
                 $result['reason'] = 'rawCommand_not_available';
             }
-        } catch (Throwable $e) {
-            // 常见：NOPERM this user has no permissions...
-            $result['via'] = 'module_list';
+        } catch (\Throwable $e) {
+            $result['via']    = 'module_list';
             $result['reason'] = 'module_list_error: ' . $e->getMessage();
         }
 
-        // 2) 降级：COMMAND INFO JSON.GET（只要命令存在即可判断）
+        // 2) 降级：COMMAND INFO JSON.GET
         try {
             if (method_exists($redis, 'rawCommand')) {
                 $info = $redis->rawCommand('COMMAND', 'INFO', 'JSON.GET');
-                // COMMAND INFO 返回：不存在时为 [null] 或空数组（不同版本略有差异）
                 if (is_array($info) && count($info) > 0 && $info[0] !== null && $info !== [false]) {
                     $result['supported'] = true;
-                    $result['via'] = 'command_info';
-                    $result['module'] = $result['module'] ?? 'RedisJSON';
+                    $result['via']       = 'command_info';
+                    $result['module']    = $result['module'] ?? 'RedisJSON';
                     return $result;
                 }
 
                 if ($result['via'] === null) {
-                    $result['via'] = 'command_info';
+                    $result['via']    = 'command_info';
                     $result['reason'] = 'command_not_found';
                 }
             }
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             if ($result['via'] === null || $result['via'] === 'module_list') {
-                $result['via'] = 'command_info';
+                $result['via']    = 'command_info';
                 $result['reason'] = 'command_info_error: ' . $e->getMessage();
             }
         }
 
-        // 3) 再降级：INFO MODULES（Redis >= 6.0 通常可用，但也可能被禁用）
+        // 3) 再降级：INFO MODULES
         try {
-            // phpredis 支持 info()，参数可能是字符串 section
             $infoStr = $redis->info('modules');
             if (is_array($infoStr)) {
-                // phpredis 有时会把 INFO 转成数组；modules 可能以字符串形式出现在某些键里
                 $flat = json_encode($infoStr);
                 if (is_string($flat)) {
                     $lower = strtolower($flat);
                     if (str_contains($lower, 'rejson') || str_contains($lower, 'redisjson')) {
                         $result['supported'] = true;
-                        $result['via'] = 'info_modules';
-                        $result['module'] = $result['module'] ?? 'RedisJSON';
+                        $result['via']       = 'info_modules';
+                        $result['module']    = $result['module'] ?? 'RedisJSON';
                         return $result;
                     }
                 }
 
-                $result['via'] = $result['via'] ?? 'info_modules';
+                $result['via']    = $result['via'] ?? 'info_modules';
                 $result['reason'] = $result['reason'] ?? 'module_not_found_in_info';
             }
-        } catch (Throwable $e) {
-            $result['via'] = $result['via'] ?? 'info_modules';
+        } catch (\Throwable $e) {
+            $result['via']    = $result['via'] ?? 'info_modules';
             $result['reason'] = $result['reason'] ?? ('info_modules_error: ' . $e->getMessage());
         }
 
-        $result['via'] = $result['via'] ?? 'error';
+        $result['via']    = $result['via'] ?? 'error';
         $result['reason'] = $result['reason'] ?? 'unknown';
         return $result;
     }
@@ -478,48 +444,38 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
     /**
      * 在渲染前检查缓存是否存在
      *
-     * @param Widget_Archive $archive
+     * @param Archive $archive
      * @return void
      */
-    public static function beforeRender($archive): void
+    public static function beforeRender(Archive $archive): void
     {
         // 管理员登录时不使用缓存
-        if (Typecho_Widget::widget("Widget_User")->hasLogin()) {
+        if (User::alloc()->hasLogin()) {
             return;
         }
 
-        // 初始化Redis
         $redis = self::initRedis();
         if (!$redis) {
             return;
         }
 
-        // 获取当前请求的唯一标识（去掉查询参数）
-        $fullUri = $_SERVER["REQUEST_URI"];
-        $requestUri = parse_url($fullUri, PHP_URL_PATH) ?: '/';
-        $cacheKey = self::$prefix . "page:" . md5($requestUri);
+        $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+        $cacheKey   = self::$prefix . 'page:' . md5($requestUri);
 
-        // 尝试从缓存获取内容
         $cachedContent = $redis->get($cacheKey);
 
         if ($cachedContent !== false) {
-            // 缓存命中，输出内容并结束执行
-            $options = Helper::options();
-            $config = $options->plugin("RedisCache");
+            $config = Helper::options()->plugin('RedisCache');
 
-            if (isset($config->debug) && $config->debug == "1") {
-                $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-                $logMessage = date("[Y-m-d H:i:s]") . " CACHE: (HIT)  " . " KEY: (" . $cacheKey . ") URI: (" . $requestUri . ")";
+            if (isset($config->debug) && $config->debug == '1') {
+                $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
+                $logMessage = date('[Y-m-d H:i:s]') . ' CACHE: (HIT)  KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')';
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
 
-            // 为页面添加缓存命中标记
-            $cachedContent .=
-                "\n<!-- Powered by Redis, TIME: " .
-                date("Y-m-d H:i:s", time() - $redis->ttl($cacheKey)) .
-                ", TTL: " .
-                $redis->ttl($cacheKey) .
-                "s -->";
+            $cachedContent .= "\n<!-- Powered by Redis, TIME: " .
+                date('Y-m-d H:i:s', time() - $redis->ttl($cacheKey)) .
+                ', TTL: ' . $redis->ttl($cacheKey) . 's -->';
 
             echo $cachedContent;
             exit();
@@ -537,102 +493,111 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
     public static function afterRender(): void
     {
         // 管理员登录时不缓存
-        if (Typecho_Widget::widget("Widget_User")->hasLogin()) {
+        if (User::alloc()->hasLogin()) {
+            ob_end_flush();
             return;
         }
 
-        // 初始化Redis
         $redis = self::initRedis();
         if (!$redis) {
+            ob_end_flush();
             return;
         }
 
-        // 获取输出内容
-        $content = ob_get_contents();
+        $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+        $config     = Helper::options()->plugin('RedisCache');
 
-        // 获取当前请求的唯一标识（去掉查询参数）
-        $fullUri = $_SERVER["REQUEST_URI"];
-        $requestUri = parse_url($fullUri, PHP_URL_PATH) ?: '/';
+        // URI 筛选：读取配置中的路径前缀，只缓存匹配的页面
+        $rawPrefixes = isset($config->uriPrefix) ? trim($config->uriPrefix) : '/';
+        $uriPrefixes = array_filter(array_map('trim', explode(',', $rawPrefixes)));
 
-        // URI 筛选：只缓存符合条件的页面
-        // 只缓存以 / 开头，且等于 / 或以 /archives、/page 开头的 URI
-        if (!($requestUri === '/' ||
-              strpos($requestUri, '/archives') === 0 ||
-              strpos($requestUri, '/page') === 0)) {
+        $matched = false;
+        foreach ($uriPrefixes as $p) {
+            // 前缀为 "/" 表示缓存所有路径
+            if ($p === '/' || strpos($requestUri, $p) === 0) {
+                $matched = true;
+                break;
+            }
+        }
+
+        if (!$matched) {
+            ob_end_flush();
             return;
         }
 
-        // 检查路径中是否存在较深的嵌套（多于两个斜杠），如果存在则跳过缓存
+        // 检查路径中是否存在较深嵌套（多于两个斜杠），如果存在则跳过缓存
         if (substr_count($requestUri, '/') > 2) {
-            $options = Helper::options();
-            $config = $options->plugin("RedisCache");
-
-            if (isset($config->debug) && $config->debug == "1") {
-                $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-                $logMessage = date("[Y-m-d H:i:s]") . " CACHE: (PASS) " . " URI: (" . $requestUri . ") REASON: (301 - multiple slashes detected)";
+            if (isset($config->debug) && $config->debug == '1') {
+                $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
+                $logMessage = date('[Y-m-d H:i:s]') . ' CACHE: (PASS) URI: (' . $requestUri . ') REASON: (multiple slashes detected)';
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
-
+            ob_end_flush();
             return;
         }
 
-        $cacheKey = self::$prefix . "page:" . md5($requestUri);
+        $content  = ob_get_clean();
+        $cacheKey = self::$prefix . 'page:' . md5($requestUri);
 
-        // 将内容写入缓存
         $redis->setex($cacheKey, self::$expire, $content);
+        echo $content;
 
-        $options = Helper::options();
-        $config = $options->plugin("RedisCache");
-
-        if (isset($config->debug) && $config->debug == "1") {
-            $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-            $logMessage = date("[Y-m-d H:i:s]") . " CACHE: (MISS) " . " KEY: (" . $cacheKey . ") URI: (" . $requestUri . ")";
+        if (isset($config->debug) && $config->debug == '1') {
+            $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
+            $logMessage = date('[Y-m-d H:i:s]') . ' CACHE: (MISS) KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')';
             file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
         }
     }
 
     /**
-     * 清除缓存
+     * 文章/页面发布时清除缓存（finishPublish 钩子传入 $contents, $widget）
      *
-     * @param mixed $content 内容
-     * @param mixed $widget 组件
-     * @return mixed
+     * @param array $contents 内容数组
+     * @param \Widget\Base\Contents $widget 编辑组件
+     * @return void
      */
-    public static function clearCache($content, $widget): mixed
+    public static function clearCacheOnPublish(array $contents, $widget): void
     {
-        // 初始化Redis
+        self::flushPageCache();
+    }
+
+    /**
+     * 评论提交时清除缓存（finishComment 钩子仅传入 $this）
+     *
+     * @param \Widget\Feedback|\Widget\Comments\Edit $widget 评论组件
+     * @return void
+     */
+    public static function clearCacheOnComment($widget): void
+    {
+        self::flushPageCache();
+    }
+
+    /**
+     * 清除所有页面缓存
+     *
+     * @return void
+     */
+    private static function flushPageCache(): void
+    {
         $redis = self::initRedis();
         if (!$redis) {
-            return $content;
+            return;
         }
 
-        // 获取所有缓存键
-        $pattern = self::$prefix . "page:*";
-        $keys = $redis->keys($pattern);
+        $pattern = self::$prefix . 'page:*';
+        $keys    = $redis->keys($pattern);
 
-        // 删除所有匹配的缓存
         if (!empty($keys)) {
             $redis->del($keys);
 
-            $options = Helper::options();
-            $config = $options->plugin("RedisCache");
+            $config = Helper::options()->plugin('RedisCache');
 
-            if (isset($config->debug) && $config->debug == "1") {
-                $logFile =
-                    __DIR__ .
-                    "/logs/cache-" .
-                    date("Y-m-d") .
-                    ".log";
-                $logMessage =
-                    date("[Y-m-d H:i:s]") .
-                    " Cache Cleanup: " .
-                    count($keys) .
-                    " pages";
+            if (isset($config->debug) && $config->debug == '1') {
+                $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
+                $logMessage = date('[Y-m-d H:i:s]') . ' Cache Cleanup: ' . count($keys) . ' pages';
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
         }
-
-        return $content;
     }
 
     /**
