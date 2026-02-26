@@ -46,15 +46,13 @@ class Plugin implements PluginInterface
      */
     private static int $expire = 3600; // 默认 1 小时
 
-    private static string $pluginName = 'RedisCache';
-
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
      *
      * @return string
      * @throws Exception
      */
-    public static function activate()
+    public static function activate(): string
     {
         // 检查 PHP 扩展
         if (!extension_loaded('redis')) {
@@ -76,14 +74,14 @@ class Plugin implements PluginInterface
         // 当评论提交时清除缓存
         Feedback::pluginHandle()->finishComment = [self::class, 'clearCacheOnComment'];
 
-        return _t('缓存插件已启用，请先配置<a href="options-plugin.php?config=' . self::$pluginName . '">缓存连接方式</a>');
+        return _t('缓存插件已启用，请正确配置缓存连接方式');
     }
 
     /**
      * 禁用插件方法,如果禁用失败,直接抛出异常
      * @throws Exception
      */
-    public static function deactivate()
+    public static function deactivate(): void
     {
         // 获取配置，检查禁用时是否需要清理缓存
         $config = Helper::options()->plugin('RedisCache');
@@ -149,6 +147,15 @@ class Plugin implements PluginInterface
             _t('输入 Redis 服务端口，默认为 6379')
         );
         $form->addInput($port);
+
+        $enableAuth = new Radio(
+            'enableAuth',
+            ['1' => _t('启用'), '0' => _t('禁用')],
+            '0',
+            _t('启用认证'),
+            _t('是否启用 Redis 认证')
+        );
+        $form->addInput($enableAuth);
 
         $password = new Password(
             'password',
