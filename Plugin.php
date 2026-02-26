@@ -74,6 +74,9 @@ class Plugin implements PluginInterface
         // 当评论提交时清除缓存
         Feedback::pluginHandle()->finishComment = [self::class, 'clearCacheOnComment'];
 
+        // 在后台页面底部注入配置页联动 JS
+        \Typecho\Plugin::factory('admin/footer.php')->begin = [self::class, 'injectFooterJs'];
+
         return _t('缓存插件已启用，请正确配置缓存连接方式');
     }
 
@@ -219,6 +222,36 @@ class Plugin implements PluginInterface
      */
     public static function personalConfig(Form $form)
     {
+    }
+
+    /**
+     * 在后台页脚注入 JS（jQuery 已加载），仅在插件配置页生效
+     * 实现 enableAuth 切换时联动显示/隐藏 password 行
+     */
+    public static function injectFooterJs()
+    {
+        // 仅在插件配置页注入
+        $requestUri = $_SERVER['REQUEST_URI'] ?? '';
+        if (!str_contains($requestUri, 'options-plugin.php')) {
+            return;
+        }
+        ?>
+        <script>
+        (function ($) {
+            function togglePasswordRow(enabled) {
+                $('ul[id^="typecho-option-item-password-"]').toggle(enabled === '1');
+            }
+
+            $(document).ready(function () {
+                togglePasswordRow($('input[name="enableAuth"]:checked').val());
+
+                $('input[name="enableAuth"]').on('change', function () {
+                    togglePasswordRow($(this).val());
+                });
+            });
+        })(jQuery);
+        </script>
+        <?php
     }
 
     /**
