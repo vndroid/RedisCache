@@ -228,11 +228,11 @@ class Plugin implements PluginInterface
      * 在后台页脚注入 JS（jQuery 已加载），仅在插件配置页生效
      * 实现 enableAuth 切换时联动显示/隐藏 password 行
      */
-    public static function injectFooterJs()
+    public static function injectFooterJs(): void
     {
-        // 仅在插件配置页注入
+        // 仅在本插件配置页注入：先确认是插件配置页，再确认是 RedisCache
         $requestUri = $_SERVER['REQUEST_URI'] ?? '';
-        if (!str_contains($requestUri, 'options-plugin.php')) {
+        if (!str_contains($requestUri, 'options-plugin.php') || ($_GET['config'] ?? '') !== 'RedisCache') {
             return;
         }
         ?>
