@@ -122,7 +122,7 @@ class Plugin implements PluginInterface
      *
      * @param Form $form 配置面板
      */
-    public static function config(Form $form)
+    public static function config(Form $form): void
     {
         $enableCache = new Radio(
             'enableCache',
@@ -484,7 +484,8 @@ class Plugin implements PluginInterface
      *
      * @param Archive $archive
      * @return void
-     * @throws \Typecho\Db\Exception|Exception
+     * @throws Exception
+     * @throws \Typecho\Db\Exception
      */
     public static function beforeRender(Archive $archive): void
     {
@@ -528,6 +529,8 @@ class Plugin implements PluginInterface
      * 在渲染后保存缓存
      *
      * @return void
+     * @throws \Typecho\Db\Exception
+     * @throws Exception
      */
     public static function afterRender(): void
     {
@@ -640,15 +643,5 @@ class Plugin implements PluginInterface
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
         }
-    }
-
-    /**
-     * 获取缓存前缀
-     *
-     * @return string
-     */
-    public static function getPrefix(): string
-    {
-        return self::$prefix;
     }
 }
