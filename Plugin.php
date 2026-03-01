@@ -94,26 +94,14 @@ class Plugin implements PluginInterface
             try {
                 $redis = self::initRedis();
                 if ($redis) {
-                    $pattern = self::$prefix . '*';
-                    $keys = $redis->keys($pattern);
-
+                    $keys = $redis->keys(self::$prefix . '*');
                     if (!empty($keys)) {
                         $redis->del($keys);
-
-                        $logFile = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
-                        $logMessage = date('[Y-m-d H:i:s]') . ' Plugin Deactivate: Cleaned ' . count($keys) . ' cache keys';
-                        file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
                     }
                 }
             } catch (Throwable $e) {
-                $logFile = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
-                $logMessage = date('[Y-m-d H:i:s]') . ' Plugin Deactivate: Failed to clean cache - ' . $e->getMessage();
-                file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+                // 清缓存失败不影响禁用流程，静默处理
             }
-        } else {
-            $logFile = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
-            $logMessage = date('[Y-m-d H:i:s]') . ' Plugin Deactivate: Cache cleanup skipped by user setting';
-            file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
         }
     }
 
@@ -220,7 +208,7 @@ class Plugin implements PluginInterface
      *
      * @param Form $form
      */
-    public static function personalConfig(Form $form)
+    public static function personalConfig(Form $form): void
     {
     }
 
@@ -237,7 +225,10 @@ class Plugin implements PluginInterface
         }
 
         $jsFile = __DIR__ . '/assets/admin-config.js';
-        echo '<script>' . file_get_contents($jsFile) . '</script>';
+        $jsContent = file_get_contents($jsFile);
+        if ($jsContent !== false) {
+            echo '<script>' . $jsContent . '</script>';
+        }
     }
 
     /**
@@ -445,12 +436,17 @@ class Plugin implements PluginInterface
     }
 
     /**
+     * 记录是否已开启输出缓冲
+     */
+    private static bool $obStarted = false;
+
+    /**
      * 在渲染前检查缓存是否存在
      *
      * @param Archive $archive
      * @return void
-     * @throws Exception
      * @throws \Typecho\Db\Exception
+     * @throws Exception
      */
     public static function beforeRender(Archive $archive): void
     {
@@ -488,17 +484,25 @@ class Plugin implements PluginInterface
 
         // 缓存未命中，开始输出缓冲
         ob_start();
+        self::$obStarted = true;
     }
 
     /**
      * 在渲染后保存缓存
      *
+     * @param Archive $archive
      * @return void
      * @throws \Typecho\Db\Exception
      * @throws Exception
      */
-    public static function afterRender(): void
+    public static function afterRender(Archive $archive): void
     {
+        // 如果 beforeRender 未开启缓冲（跳过了缓存逻辑），直接返回
+        if (!self::$obStarted) {
+            return;
+        }
+        self::$obStarted = false;
+
         // 管理员登录时不缓存
         if (User::alloc()->hasLogin()) {
             ob_end_flush();
@@ -544,6 +548,9 @@ class Plugin implements PluginInterface
         }
 
         $content  = ob_get_clean();
+        if ($content === false) {
+            return;
+        }
         $cacheKey = self::$prefix . 'page:' . md5($requestUri);
 
         $redis->setex($cacheKey, self::$expire, $content);
@@ -560,11 +567,10 @@ class Plugin implements PluginInterface
      * 文章/页面发布时清除缓存（finishPublish 钩子传入 $contents, $widget）
      *
      * @param array $contents 内容数组
-     * @param \Widget\Base\Contents $widget 编辑组件
+     * @param PostEdit|PageEdit $widget 编辑组件
      * @return void
-     * @throws Exception
      */
-    public static function clearCacheOnPublish(array $contents, $widget): void
+    public static function clearCacheOnPublish(array $contents, PostEdit|PageEdit $widget): void
     {
         self::flushPageCache();
     }
@@ -572,11 +578,10 @@ class Plugin implements PluginInterface
     /**
      * 评论提交时清除缓存（finishComment 钩子仅传入 $this）
      *
-     * @param \Widget\Feedback|\Widget\Comments\Edit $widget 评论组件
+     * @param Feedback $widget 评论组件
      * @return void
-     * @throws Exception
      */
-    public static function clearCacheOnComment($widget): void
+    public static function clearCacheOnComment(Feedback $widget): void
     {
         self::flushPageCache();
     }
