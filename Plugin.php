@@ -27,8 +27,11 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
 
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
+     * @access public
+     * @return string
+     * @throws Typecho_Plugin_Exception
      */
-    public static function activate()
+    public static function activate(): string
     {
         // 初始化Redis连接
         Typecho_Plugin::factory("index.php")->begin = [
@@ -64,13 +67,13 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             "clearCache",
         ];
 
-        return _t("缓存插件已启用");
+        return _t('缓存插件已启用，请先配置<a href="options-plugin.php?config=' . self::$pluginName . '">缓存连接方式</a>');
     }
 
     /**
      * 禁用插件方法,如果禁用失败,直接抛出异常
      */
-    public static function deactivate()
+    public static function deactivate(): string
     {
         // 获取配置，检查禁用时是否需要清理缓存
         $options = Helper::options();
@@ -200,6 +203,10 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
 
     /**
      * 个人用户的配置面板
+     * @access public
+     * @param Typecho_Widget_Helper_Form $form
+     * @return void
+     * @throws Typecho_Exception
      */
     public static function personalConfig(Typecho_Widget_Helper_Form $form)
     {
