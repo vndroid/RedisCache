@@ -22,7 +22,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
 }
 
 /**
- * Redis 缓存提速插件 for Typecho
+ * 静态资源缓存插件 via Redis for Typecho
  *
  * @package RedisCache
  * @author Vex
