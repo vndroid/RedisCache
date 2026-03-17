@@ -73,6 +73,30 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
     public static function deactivate()
     {
         Helper::removePanel(1, "RedisCache/manage-cache.php");
+
+        // 清理所有以 prefix 开头的 Redis 缓存
+        try {
+            $redis = self::initRedis();
+            if ($redis) {
+                $pattern = self::$prefix . "*";
+                $keys = $redis->keys($pattern);
+
+                if (!empty($keys)) {
+                    $redis->del($keys);
+
+                    // 记录清理日志
+                    $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
+                    $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Cleaned " . count($keys) . " cache keys";
+                    file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+                }
+            }
+        } catch (Throwable $e) {
+            // 禁用插件时清理缓存失败不应该影响插件禁用，仅记录日志
+            $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
+            $logMessage = date("[Y-m-d H:i:s]") . " Plugin Deactivate: Failed to clean cache - " . $e->getMessage();
+            file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+        }
+
         return _t("缓存插件已禁用");
     }
 
