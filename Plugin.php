@@ -84,24 +84,28 @@ class Plugin implements PluginInterface
      * 禁用插件方法,如果禁用失败,直接抛出异常
      * @throws Exception
      */
-    public static function deactivate(): void
+    public static function deactivate(): string
     {
         // 获取配置，检查禁用时是否需要清理缓存
         $config = Helper::options()->plugin('RedisCache');
         $shouldCleanCache = !isset($config->cleanCacheOnDeactivate) || $config->cleanCacheOnDeactivate == '1';
 
+        $cleanCount = 0;
+
         if ($shouldCleanCache) {
-            try {
-                $redis = self::initRedis();
-                if ($redis) {
-                    $keys = $redis->keys(self::$prefix . '*');
-                    if (!empty($keys)) {
-                        $redis->del($keys);
-                    }
+            $redis = self::initRedis();
+            if ($redis) {
+                $keys = $redis->keys(self::$prefix . '*');
+                if (!empty($keys)) {
+                    $cleanCount = count($keys);
+                    $redis->del($keys);
                 }
-            } catch (Throwable $e) {
-                // 清缓存失败不影响禁用流程，静默处理
             }
+        }
+        if ($shouldCleanCache && $cleanCount > 0) {
+            return _t('插件已禁用，已清理了 %d 条缓存', $cleanCount);
+        } else {
+            return _t('插件已禁用');
         }
     }
 
@@ -569,6 +573,7 @@ class Plugin implements PluginInterface
      * @param array $contents 内容数组
      * @param PostEdit|PageEdit $widget 编辑组件
      * @return void
+     * @throws Exception
      */
     public static function clearCacheOnPublish(array $contents, PostEdit|PageEdit $widget): void
     {
@@ -580,6 +585,7 @@ class Plugin implements PluginInterface
      *
      * @param Feedback $widget 评论组件
      * @return void
+     * @throws Exception
      */
     public static function clearCacheOnComment(Feedback $widget): void
     {
