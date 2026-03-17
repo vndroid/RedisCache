@@ -633,7 +633,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (URI PREFIX NOT MATCHED DO NOT CACHE THEM PATHS)   URI: (' . $requestUri . ')'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (URI PREFIX NOT MATCHED)                           URI: (' . $requestUri . ')'
                 );
             }
             ob_end_flush();
@@ -655,7 +655,7 @@ class Plugin implements PluginInterface
                 if (isset($config->debug) && $config->debug == '1') {
                     self::writeLog(
                         'cache-' . date('Y-m-d') . '.log',
-                        date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (URI SUFFIX NOT MATCHED DO NOT CACHE THEM PATHS)   URI: (' . $requestUri . ')'
+                        date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (URI SUFFIX NOT MATCHED)                           URI: (' . $requestUri . ')'
                     );
                 }
                 ob_end_flush();
@@ -668,7 +668,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (DO NOT MCACHE FOR ARTICLES WITH MULTIPLE SLASHES) URI: (' . $requestUri . ')'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (URI WITH MULTIPLE SLASHES)                        URI: (' . $requestUri . ')'
                 );
             }
             ob_end_flush();
