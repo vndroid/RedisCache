@@ -278,18 +278,11 @@ class Plugin implements PluginInterface
             self::$prefix = $config->prefix;
         }
 
-        // 创建日志目录
-        $logDir = __DIR__ . '/logs';
-        if (!is_dir($logDir)) {
-            mkdir($logDir, 0755, true);
-        }
-
-        $logFile = $logDir . '/redis-' . date('Y-m-d') . '.log';
+        $logFilename = 'redis-' . date('Y-m-d') . '.log';
 
         try {
-
-            // 尝试连接Redis
-            $redis = new Redis();
+            // 尝试连接 Redis
+            $redis     = new Redis();
             $connected = $redis->connect($config->host, intval($config->port), 3);
 
             if (!$connected) {
@@ -313,7 +306,7 @@ class Plugin implements PluginInterface
             $logMessage = date('[Y-m-d H:i:s]') . ' redis connect successful: ' . $config->host . ':' . $config->port;
 
             // 写入测试数据
-            $testKey = self::$prefix . 'test';
+            $testKey   = self::$prefix . 'test';
             $testValue = 'Hello Typecho! ' . date('Y-m-d H:i:s');
             $redis->set($testKey, $testValue);
             $retrievedValue = $redis->get($testKey);
@@ -330,7 +323,7 @@ class Plugin implements PluginInterface
 
             // 探测 RedisJSON 支持情况并写入日志（不影响主流程）
             try {
-                $json = self::detectRedisJsonSupport($redis);
+                $json        = self::detectRedisJsonSupport($redis);
                 $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis json support: ' .
                     ($json['supported'] ? 'YES' : 'NO') .
                     ' via=' . ($json['via'] ?? '-') .
@@ -341,13 +334,12 @@ class Plugin implements PluginInterface
                 $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis json support: UNKNOWN reason=' . $e->getMessage();
             }
 
-            file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+            self::writeLog($logFilename, $logMessage);
 
             self::$redis = $redis;
             return $redis;
-        } catch (\Exception $e) {
-            $errorMessage = date('[Y-m-d H:i:s]') . ' redis connect failed: ' . $e->getMessage();
-            file_put_contents($logFile, $errorMessage . "\n", FILE_APPEND);
+        } catch (\Throwable $e) {
+            self::writeLog($logFilename, date('[Y-m-d H:i:s]') . ' redis connect failed: ' . $e->getMessage());
             return null;
         }
     }
@@ -454,6 +446,34 @@ class Plugin implements PluginInterface
     private static bool $obStarted = false;
 
     /**
+     * 写入日志，带降级功能
+     *
+     * 优先写入插件 logs/ 目录；若该目录不可写（或创建失败），
+     * 自动降级到 /tmp/typecho 目录，确保日志不丢失。
+     *
+     * @param string $filename 日志文件名，如 redis-2026-03-17.log
+     * @param string $message  日志正文（不含末尾换行）
+     * @return void
+     */
+    private static function writeLog(string $filename, string $message): void
+    {
+        $dirs = [
+            __DIR__ . '/logs',
+            '/tmp/typecho',
+        ];
+
+        foreach ($dirs as $dir) {
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0755, true);
+            }
+            if (is_dir($dir) && is_writable($dir)) {
+                file_put_contents($dir . '/' . $filename, $message . "\n", FILE_APPEND);
+                return;
+            }
+        }
+    }
+
+    /**
      * 在渲染前检查缓存是否存在
      *
      * @param Archive $archive
@@ -479,12 +499,13 @@ class Plugin implements PluginInterface
         $cachedContent = $redis->get($cacheKey);
 
         if ($cachedContent !== false) {
-            $config = Helper::options()->plugin('RedisCache');
+            $config = Helper::options()->plugin(basename(__DIR__));
 
             if (isset($config->debug) && $config->debug == '1') {
-                $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
-                $logMessage = date('[Y-m-d H:i:s]') . ' CACHE: (HIT)  KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')';
-                file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+                self::writeLog(
+                    'cache-' . date('Y-m-d') . '.log',
+                    date('[Y-m-d H:i:s]') . ' CACHE: (HIT)  KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')'
+                );
             }
 
             $cachedContent .= "\n<!-- Powered by Redis, TIME: " .
@@ -529,7 +550,7 @@ class Plugin implements PluginInterface
         }
 
         $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-        $config     = Helper::options()->plugin('RedisCache');
+        $config     = Helper::options()->plugin(basename(__DIR__));
 
         // URI 筛选：读取配置中的路径前缀，只缓存匹配的页面
         $rawPrefixes = isset($config->uriPrefix) ? trim($config->uriPrefix) : '/';
@@ -551,9 +572,10 @@ class Plugin implements PluginInterface
         // 检查路径中是否存在较深嵌套（多于两个斜杠），如果存在则跳过缓存
         if (substr_count($requestUri, '/') > 2) {
             if (isset($config->debug) && $config->debug == '1') {
-                $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
-                $logMessage = date('[Y-m-d H:i:s]') . ' CACHE: (PASS) URI: (' . $requestUri . ') REASON: (multiple slashes detected)';
-                file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+                self::writeLog(
+                    'cache-' . date('Y-m-d') . '.log',
+                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS) URI: (' . $requestUri . ') REASON: (multiple slashes detected)'
+                );
             }
             ob_end_flush();
             return;
@@ -569,9 +591,10 @@ class Plugin implements PluginInterface
         echo $content;
 
         if (isset($config->debug) && $config->debug == '1') {
-            $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
-            $logMessage = date('[Y-m-d H:i:s]') . ' CACHE: (MISS) KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')';
-            file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+            self::writeLog(
+                'cache-' . date('Y-m-d') . '.log',
+                date('[Y-m-d H:i:s]') . ' CACHE: (MISS) KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')'
+            );
         }
     }
 
@@ -618,12 +641,13 @@ class Plugin implements PluginInterface
         if (!empty($keys)) {
             $redis->del($keys);
 
-            $config = Helper::options()->plugin('RedisCache');
+            $config = Helper::options()->plugin(basename(__DIR__));
 
             if (isset($config->debug) && $config->debug == '1') {
-                $logFile    = __DIR__ . '/logs/cache-' . date('Y-m-d') . '.log';
-                $logMessage = date('[Y-m-d H:i:s]') . ' Cache Cleanup: ' . count($keys) . ' pages';
-                file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+                self::writeLog(
+                    'cache-' . date('Y-m-d') . '.log',
+                    date('[Y-m-d H:i:s]') . ' Cache Cleanup: ' . count($keys) . ' pages'
+                );
             }
         }
     }
