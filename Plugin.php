@@ -40,17 +40,17 @@ class Plugin implements PluginInterface
     /**
      * 统一缓存前缀
      */
-    private static string $prefix = "typecho_cache:";
+    private static string $prefix = '';
 
     /**
-     * Post 缓存过期时间（秒），由设置决定
+     * Post 缓存过期时间（秒）
      */
-    private static int $postExpire = 3600; // 默认 1 小时
+    private static int $postExpire = 0;
 
     /**
-     * Page 缓存过期时间（秒），默认 30 天
+     * Page 缓存过期时间（秒）
      */
-    private static int $pageExpire = 2592000; // 默认 30 天
+    private static int $pageExpire = 0;
 
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
@@ -172,9 +172,9 @@ class Plugin implements PluginInterface
         $postExpire = new Text(
             'postExpire',
             null,
-            '3600',
+            '86400',
             _t('文章缓存时间（秒）'),
-            _t('常规文章 TTL 缓存过期时间，默认为一小时（3600 秒）')
+            _t('常规文章 TTL 缓存过期时间，默认为一天（86400 秒）')
         );
         $form->addInput($postExpire);
 
@@ -183,7 +183,7 @@ class Plugin implements PluginInterface
             null,
             '2592000',
             _t('页面缓存时间（秒）'),
-            _t('独立页面 TTL 缓存过期时间，默认为一个月（2592000 秒）')
+            _t('独立页面 TTL 缓存过期时间，默认为一月（2592000 秒）')
         );
         $form->addInput($pageExpire);
 
@@ -286,18 +286,10 @@ class Plugin implements PluginInterface
             return null;
         }
 
-        // 设置缓存参数
-        if (isset($config->postExpire)) {
-            self::$postExpire = intval($config->postExpire);
-        }
-
-        if (isset($config->pageExpire)) {
-            self::$pageExpire = intval($config->pageExpire);
-        }
-
-        if (isset($config->prefix)) {
-            self::$prefix = $config->prefix;
-        }
+        // 设置缓存参数，配置为空时使用默认值
+        self::$prefix     = $config->prefix     ?: 'typecho_cache:';
+        self::$postExpire = intval($config->postExpire) ?: 86400;
+        self::$pageExpire = intval($config->pageExpire) ?: 2592000;
 
         // 创建日志目录（writeLog 会自行处理，此处无需手动创建）
         $logFilename = 'redis-' . date('Y-m-d') . '.log';
