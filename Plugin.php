@@ -287,7 +287,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
 
             if (isset($config->debug) && $config->debug == "1") {
                 $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-                $logMessage = date("[Y-m-d H:i:s]") . " HIT: " . $requestUri . " (Key: " . $cacheKey . ")";
+                $logMessage = date("[Y-m-d H:i:s]") . " CACHE: (HIT ) " . " KEY: (" . $cacheKey . ") URI: (" . $requestUri . ")";
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
 
@@ -340,7 +340,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
 
         if (isset($config->debug) && $config->debug == "1") {
             $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
-            $logMessage = date("[Y-m-d H:i:s]") . " MISS: " . " KEY: (" . $cacheKey . ") URI: (" . $requestUri . ")";
+            $logMessage = date("[Y-m-d H:i:s]") . " CACHE: (MISS) " . " KEY: (" . $cacheKey . ") URI: (" . $requestUri . ")";
             file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
         }
     }
