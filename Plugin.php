@@ -555,6 +555,20 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             return;
         }
 
+        // 检查路径中是否存在较深的嵌套（多于两个斜杠），如果存在则跳过缓存
+        if (substr_count($requestUri, '/') > 2) {
+            $options = Helper::options();
+            $config = $options->plugin("RedisCache");
+
+            if (isset($config->debug) && $config->debug == "1") {
+                $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
+                $logMessage = date("[Y-m-d H:i:s]") . " CACHE: (PASS) " . " URI: (" . $requestUri . ") REASON: (301 - multiple slashes detected)";
+                file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
+            }
+
+            return;
+        }
+
         $cacheKey = self::$prefix . "page:" . md5($requestUri);
 
         // 将内容写入缓存
