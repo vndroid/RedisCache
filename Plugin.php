@@ -4,7 +4,8 @@ namespace TypechoPlugin\RedisCache;
 
 use Redis;
 use Throwable;
-use Typecho\Plugin\Exception;
+use Typecho\Db\Exception as DbException;
+use Typecho\Plugin\Exception as PluginException;
 use Typecho\Plugin\PluginInterface;
 use Typecho\Widget\Helper\Form;
 use Typecho\Widget\Helper\Form\Element\Text;
@@ -50,13 +51,13 @@ class Plugin implements PluginInterface
      * 激活插件方法,如果激活失败,直接抛出异常
      *
      * @return string
-     * @throws Exception
+     * @throws PluginException
      */
     public static function activate(): string
     {
         // 检查 PHP 扩展
         if (!extension_loaded('redis')) {
-            throw new Exception('需要 PHP redis 扩展');
+            throw new PluginException('需要 PHP 环境支持 redis 扩展');
         }
 
         // 在内容渲染前尝试从缓存获取
@@ -82,7 +83,7 @@ class Plugin implements PluginInterface
 
     /**
      * 禁用插件方法,如果禁用失败,直接抛出异常
-     * @throws Exception
+     * @throws PluginException
      */
     public static function deactivate(): string
     {
@@ -218,7 +219,7 @@ class Plugin implements PluginInterface
 
     /**
      * 在后台导航栏插件状态显示
-     * @throws Exception
+     * @throws PluginException
      */
     public static function addAdminPageBar(): void
     {
@@ -253,7 +254,7 @@ class Plugin implements PluginInterface
      * 初始化 Redis 连接
      *
      * @return Redis|null
-     * @throws Exception
+     * @throws PluginException
      */
     public static function initRedis(): ?Redis
     {
@@ -286,10 +287,6 @@ class Plugin implements PluginInterface
         $logFile = $logDir . '/redis-' . date('Y-m-d') . '.log';
 
         try {
-            // 检查Redis扩展是否加载
-            if (!extension_loaded('redis')) {
-                throw new \Exception('PHP Redis 扩展未安装');
-            }
 
             // 尝试连接Redis
             $redis = new Redis();
@@ -461,8 +458,8 @@ class Plugin implements PluginInterface
      *
      * @param Archive $archive
      * @return void
-     * @throws \Typecho\Db\Exception
-     * @throws Exception
+     * @throws DbException
+     * @throws PluginException
      */
     public static function beforeRender(Archive $archive): void
     {
@@ -508,8 +505,8 @@ class Plugin implements PluginInterface
      *
      * @param Archive $archive
      * @return void
-     * @throws \Typecho\Db\Exception
-     * @throws Exception
+     * @throws DbException
+     * @throws PluginException
      */
     public static function afterRender(Archive $archive): void
     {
@@ -584,7 +581,7 @@ class Plugin implements PluginInterface
      * @param array $contents 内容数组
      * @param PostEdit|PageEdit $widget 编辑组件
      * @return void
-     * @throws Exception
+     * @throws PluginException
      */
     public static function clearCacheOnPublish(array $contents, PostEdit|PageEdit $widget): void
     {
@@ -596,7 +593,6 @@ class Plugin implements PluginInterface
      *
      * @param Feedback $widget 评论组件
      * @return void
-     * @throws Exception
      */
     public static function clearCacheOnComment(Feedback $widget): void
     {
@@ -607,7 +603,7 @@ class Plugin implements PluginInterface
      * 清除所有页面缓存
      *
      * @return void
-     * @throws Exception
+     * @throws PluginException
      */
     private static function flushPageCache(): void
     {
