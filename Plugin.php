@@ -235,23 +235,9 @@ class Plugin implements PluginInterface
         if (!str_contains($requestUri, 'options-plugin.php') || ($_GET['config'] ?? '') !== 'RedisCache') {
             return;
         }
-        ?>
-        <script>
-        (function ($) {
-            function togglePasswordRow(enabled) {
-                $('ul[id^="typecho-option-item-password-"]').toggle(enabled === '1');
-            }
 
-            $(document).ready(function () {
-                togglePasswordRow($('input[name="enableAuth"]:checked').val());
-
-                $('input[name="enableAuth"]').on('change', function () {
-                    togglePasswordRow($(this).val());
-                });
-            });
-        })(jQuery);
-        </script>
-        <?php
+        $jsFile = __DIR__ . '/assets/admin-config.js';
+        echo '<script>' . file_get_contents($jsFile) . '</script>';
     }
 
     /**
