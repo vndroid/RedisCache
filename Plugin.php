@@ -209,7 +209,7 @@ class Plugin implements PluginInterface
             'uriPrefix',
             null,
             '/',
-            _t('路径前缀'),
+            _t('匹配前缀'),
             _t('按路径前缀进行缓存，防止缓存不需要的页面，多个前缀请用英文逗号分隔')
         );
         $form->addInput($uriPrefix);
