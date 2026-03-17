@@ -117,7 +117,7 @@ class Plugin implements PluginInterface
         if ($config->debug == '1' && $cleanCount > 0) {
             self::writeLog(
                 'cache-' . date('Y-m-d') . '.log',
-                date('[Y-m-d H:i:s]') . ' CACHE: (FLUSHED) REASON: (PLUGIN DEACTIVATED)                               SUM: ' . $cleanCount . 'KEYs'
+                date('[Y-m-d H:i:s]') . ' CACHE: (FLUSHED) REASON: (PLUGIN DEACTIVATED)                               SUM: (' . $cleanCount . ' KEYs)'
             );
         }
         if ($shouldCleanCache && $cleanCount > 0) {
@@ -708,7 +708,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' CACHE: (VACATED) REASON: (ARTICLE CONTENT UPDATED)                          SUM: '. count($keysArrays) . 'KEYs'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (VACATED) REASON: (ARTICLE CONTENT UPDATED)                          SUM: ('. count($keysArrays) . ' KEYs)'
                 );
             }
         }
