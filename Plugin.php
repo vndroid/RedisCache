@@ -501,6 +501,15 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
 
         // 获取当前请求的唯一标识
         $requestUri = $_SERVER["REQUEST_URI"];
+
+        // URI 筛选：只缓存符合条件的页面
+        // 只缓存以 / 开头，且等于 / 或以 /archives、/page 开头的 URI
+        if (!($requestUri === '/' ||
+              strpos($requestUri, '/archives') === 0 ||
+              strpos($requestUri, '/page') === 0)) {
+            return;
+        }
+
         $cacheKey = self::$prefix . "page:" . md5($requestUri);
 
         // 将内容写入缓存
