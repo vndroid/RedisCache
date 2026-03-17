@@ -72,8 +72,6 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
      */
     public static function deactivate()
     {
-        Helper::removePanel(1, "RedisCache/manage-cache.php");
-
         // 获取配置，检查禁用时是否需要清理缓存
         $options = Helper::options();
         $config = $options->plugin("RedisCache");
