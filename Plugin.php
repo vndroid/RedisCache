@@ -74,8 +74,8 @@ class Plugin implements PluginInterface
         // 当评论提交时清除缓存
         Feedback::pluginHandle()->finishComment = [self::class, 'clearCacheOnComment'];
 
-        // 在后台页面底部注入配置页联动 JS
         \Typecho\Plugin::factory('admin/footer.php')->begin = [self::class, 'injectFooterJs'];
+        \Typecho\Plugin::factory('admin/menu.php')->navBar = [self::class, 'addAdminPageBar'];
 
         return _t('缓存插件已启用，请正确配置缓存连接方式');
     }
@@ -217,6 +217,20 @@ class Plugin implements PluginInterface
     }
 
     /**
+     * 在后台导航栏插件状态显示
+     * @throws Exception
+     */
+    public static function addAdminPageBar(): void
+    {
+        $config = Helper::options()->plugin(basename(__DIR__));
+        if ($config->enableCache === '1') {
+            echo '<span class="message success">' . htmlspecialchars('SRC 已启用') . '</span>';
+        } else {
+            echo '<span class="message error">' . htmlspecialchars('SRC 未启用') . '</span>';
+        }
+    }
+
+    /**
      * 在后台页脚注入 JS（jQuery 已加载），仅在插件配置页生效
      * 实现 enableAuth 切换时联动显示/隐藏 password 行
      */
@@ -224,7 +238,7 @@ class Plugin implements PluginInterface
     {
         // 仅在本插件配置页注入：先确认是插件配置页，再确认是 RedisCache
         $requestUri = $_SERVER['REQUEST_URI'] ?? '';
-        if (!str_contains($requestUri, 'options-plugin.php') || ($_GET['config'] ?? '') !== 'RedisCache') {
+        if (!str_contains($requestUri, 'options-plugin.php') || ($_GET['config'] ?? '') !== basename(__DIR__)) {
             return;
         }
 
@@ -247,7 +261,7 @@ class Plugin implements PluginInterface
             return self::$redis;
         }
 
-        $config = Helper::options()->plugin('RedisCache');
+        $config = Helper::options()->plugin(basename(__DIR__));
 
         // 如果禁用缓存，直接返回
         if (isset($config->enableCache) && $config->enableCache == '0') {
@@ -454,7 +468,6 @@ class Plugin implements PluginInterface
      */
     public static function beforeRender(Archive $archive): void
     {
-        /** @var User $user */
         $user = User::alloc();
         if ($user->hasLogin()) {
             return;
@@ -498,6 +511,7 @@ class Plugin implements PluginInterface
      * @param Archive $archive
      * @return void
      * @throws \Typecho\Db\Exception
+     * @throws Exception
      */
     public static function afterRender(Archive $archive): void
     {
@@ -507,7 +521,6 @@ class Plugin implements PluginInterface
         }
         self::$obStarted = false;
 
-        /** @var User $user */
         $user = User::alloc();
         if ($user->hasLogin()) {
             ob_end_flush();
