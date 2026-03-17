@@ -232,7 +232,7 @@ class Plugin implements PluginInterface
     }
 
     /**
-     * 初始化Redis连接
+     * 初始化 Redis 连接
      *
      * @return Redis|null
      * @throws Exception
@@ -307,7 +307,8 @@ class Plugin implements PluginInterface
                 throw new \Exception('缓存测试数据写入失败');
             }
 
-            $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis writable-test successful: ' . $retrievedValue;
+            // $retrievedValue 此处已通过 !== 比较确认为 string
+            $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis writable-test successful: ' . (string) $retrievedValue;
 
             // 删除测试数据
             $redis->del($testKey);
@@ -341,11 +342,11 @@ class Plugin implements PluginInterface
      * 仅支持 Redis 8.0+
      *
      * 返回结构：
-     * - supported: bool 是否支持 JSON 命令
-     * - via: string 使用的探测方式（module_list/command_info/error）
-     * - module: ?string 命中的模块名（RedisJSON/ReJSON），若有
-     * - version: ?string 模块版本
-     * - reason: ?string 不支持/失败原因
+     * - supported: bool    是否支持 JSON 命令
+     * - via:       string  探测方式（module_list / command_info / error）
+     * - module:    ?string 模块名（RedisJSON / ReJSON）
+     * - version:   ?string 模块版本
+     * - reason:    ?string 不支持或失败原因
      *
      * @param Redis $redis
      * @return array{supported: bool, via: string, module: ?string, version: ?string, reason: ?string}
@@ -360,7 +361,7 @@ class Plugin implements PluginInterface
             'reason'    => null,
         ];
 
-        // 1) 主推荐：MODULE LIST（Redis 8.0+ 标准方式）
+        // 1) 主推荐：MODULE LIST（Redis 4.0+ 标准方式）
         try {
             if (!method_exists($redis, 'rawCommand')) {
                 $result['via']    = 'module_list';
@@ -377,8 +378,7 @@ class Plugin implements PluginInterface
                             continue;
                         }
 
-                        // Redis 8.0+ 返回关联数组格式 ['name' => '...', 'ver' => '...', ...]
-                        $name = (string) ($moduleInfo['name'] ?? '');
+                        $name    = (string) ($moduleInfo['name'] ?? '');
                         $version = (string) ($moduleInfo['ver'] ?? '');
 
                         // 检查是否为 JSON 模块
@@ -402,7 +402,7 @@ class Plugin implements PluginInterface
             $result['reason'] = 'module_list_error: ' . $e->getMessage();
         }
 
-        // 2) 备选：COMMAND INFO JSON.GET（快速备选方案）
+        // 2) 备选：COMMAND INFO JSON.GET
         try {
             if (!method_exists($redis, 'rawCommand')) {
                 // 如果 rawCommand 不可用，直接返回失败
@@ -450,8 +450,9 @@ class Plugin implements PluginInterface
      */
     public static function beforeRender(Archive $archive): void
     {
-        // 管理员登录时不使用缓存
-        if (User::alloc()->hasLogin()) {
+        /** @var User $user */
+        $user = User::alloc();
+        if ($user->hasLogin()) {
             return;
         }
 
@@ -493,7 +494,6 @@ class Plugin implements PluginInterface
      * @param Archive $archive
      * @return void
      * @throws \Typecho\Db\Exception
-     * @throws Exception
      */
     public static function afterRender(Archive $archive): void
     {
@@ -503,8 +503,9 @@ class Plugin implements PluginInterface
         }
         self::$obStarted = false;
 
-        // 管理员登录时不缓存
-        if (User::alloc()->hasLogin()) {
+        /** @var User $user */
+        $user = User::alloc();
+        if ($user->hasLogin()) {
             ob_end_flush();
             return;
         }
@@ -524,7 +525,6 @@ class Plugin implements PluginInterface
 
         $matched = false;
         foreach ($uriPrefixes as $p) {
-            // 前缀为 "/" 表示缓存所有路径
             if ($p === '/' || str_starts_with($requestUri, $p)) {
                 $matched = true;
                 break;
@@ -547,7 +547,7 @@ class Plugin implements PluginInterface
             return;
         }
 
-        $content  = ob_get_clean();
+        $content = ob_get_clean();
         if ($content === false) {
             return;
         }
