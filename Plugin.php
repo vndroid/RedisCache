@@ -214,6 +214,15 @@ class Plugin implements PluginInterface
         );
         $form->addInput($uriPrefix);
 
+        $uriSuffix = new Text(
+            'uriSuffix',
+            null,
+            '',
+            _t('匹配后缀'),
+            _t('按路径后缀进行缓存，如配置 .html 则只缓存以 .html 结尾的页面；根路径 / 始终被缓存，不受此规则限制；多个后缀请用英文逗号分隔；留空表示不限制；与匹配前缀同时配置时，需同时满足才会缓存')
+        );
+        $form->addInput($uriSuffix);
+
         $debug = new Radio(
             'debug',
             ['1' => _t('启用'), '0' => _t('禁用')],
@@ -608,7 +617,7 @@ class Plugin implements PluginInterface
         $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
         $config     = Helper::options()->plugin(basename(__DIR__));
 
-        // URI 筛选：读取配置中的路径前缀，只缓存匹配的页面
+        // URI 前缀筛选：读取配置中的路径前缀，只缓存匹配的页面
         $rawPrefixes = isset($config->uriPrefix) ? trim($config->uriPrefix) : '/';
         $uriPrefixes = array_filter(array_map('trim', explode(',', $rawPrefixes)));
 
@@ -621,8 +630,37 @@ class Plugin implements PluginInterface
         }
 
         if (!$matched) {
+            if (isset($config->debug) && $config->debug == '1') {
+                self::writeLog(
+                    'cache-' . date('Y-m-d') . '.log',
+                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (URI PREFIX NOT MATCHED DO NOT CACHE THEM PATHS)   URI: (' . $requestUri . ')'
+                );
+            }
             ob_end_flush();
             return;
+        }
+
+        // URI 后缀筛选：根路径 / 始终通过；uriSuffix 为空则不限制
+        $rawSuffixes = isset($config->uriSuffix) ? trim($config->uriSuffix) : '';
+        if ($rawSuffixes !== '' && $requestUri !== '/') {
+            $uriSuffixes   = array_filter(array_map('trim', explode(',', $rawSuffixes)));
+            $suffixMatched = false;
+            foreach ($uriSuffixes as $s) {
+                if ($s !== '' && str_ends_with($requestUri, $s)) {
+                    $suffixMatched = true;
+                    break;
+                }
+            }
+            if (!$suffixMatched) {
+                if (isset($config->debug) && $config->debug == '1') {
+                    self::writeLog(
+                        'cache-' . date('Y-m-d') . '.log',
+                        date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (URI SUFFIX NOT MATCHED DO NOT CACHE THEM PATHS)   URI: (' . $requestUri . ')'
+                    );
+                }
+                ob_end_flush();
+                return;
+            }
         }
 
         // 检查路径中是否存在较深嵌套（多于两个斜杠），如果存在则跳过缓存
