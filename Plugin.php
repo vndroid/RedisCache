@@ -424,7 +424,6 @@ class Plugin implements PluginInterface
         try {
             if (!method_exists($redis, 'rawCommand')) {
                 // 如果 rawCommand 不可用，直接返回失败
-                $result['via']    ??= 'error';
                 $result['reason'] ??= 'rawCommand_unavailable';
                 return $result;
             }
@@ -441,7 +440,6 @@ class Plugin implements PluginInterface
             }
 
             // COMMAND INFO 失败，保留之前的失败原因
-            $result['via']    ??= 'command_info';
             $result['reason'] ??= 'command_not_found';
         } catch (Throwable $e) {
             $result['via']    ??= 'command_info';
