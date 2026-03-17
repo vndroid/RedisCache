@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Redis 缓存插件 - 将 Typecho 内容缓存到 Redis
+ * 缓存加速插件 - 将文章内容缓存到 Redis 中，提升访问速度
  *
  * @package RedisCache
  * @author Vex
