@@ -62,9 +62,12 @@ class Plugin implements PluginInterface
     {
         // 检查 PHP 扩展
         if (!extension_loaded('redis')) {
-            throw new PluginException('需要 PHP 环境支持 redis 扩展');
+            throw new PluginException(_t('检测到当前 PHP 环境缺失 redis 扩展'));
         }
-
+        // 检查插件目录名称
+        if (!str_ends_with(trim(__DIR__, '/\\'), 'RedisCache')) {
+            throw new PluginException(_t('插件目录名必须为 RedisCache（区分大小写），请检查插件目录名是否正确'));
+        }
         // 在内容渲染前尝试从缓存获取
         Archive::pluginHandle()->beforeRender = [self::class, 'beforeRender'];
 
@@ -83,7 +86,8 @@ class Plugin implements PluginInterface
         \Typecho\Plugin::factory('admin/footer.php')->begin = [self::class, 'injectFooterJs'];
         \Typecho\Plugin::factory('admin/menu.php')->navBar = [self::class, 'addAdminPageBar'];
 
-        return _t('缓存插件已启用，请正确配置缓存连接方式');
+        $configLink = '<a href="' . Helper::options()->adminUrl('options-plugin.php?config=RedisCache', true) . '">' . _t('前往设置') . '</a>';
+        return _t('插件已启用，但缓存功能未启用，请检查缓存 URI ') . $configLink;
     }
 
     /**
@@ -94,7 +98,7 @@ class Plugin implements PluginInterface
     public static function deactivate(): string
     {
         // 获取配置，检查禁用时是否需要清理缓存
-        $config           = Helper::options()->plugin('RedisCache');
+        $config           = Helper::options()->plugin(basename(__DIR__));
         $shouldCleanCache = !isset($config->cleanCacheOnDeactivate) || $config->cleanCacheOnDeactivate == '1';
 
         $cleanCount = 0;
@@ -110,8 +114,14 @@ class Plugin implements PluginInterface
             }
         }
 
+        if ($config->debug == '1' && $cleanCount > 0) {
+            self::writeLog(
+                'cache-' . date('Y-m-d') . '.log',
+                date('[Y-m-d H:i:s]') . ' CACHE: (FLUSHED) REASON: (PLUGIN DEACTIVATED)                               SUM: ' . $cleanCount . 'KEYs'
+            );
+        }
         if ($shouldCleanCache && $cleanCount > 0) {
-            return _t('插件已禁用，已清理了 %d 条缓存', $cleanCount);
+            return _t('插件已禁用，已清理 %d 条缓存', $cleanCount);
         } else {
             return _t('插件已禁用');
         }
@@ -127,7 +137,7 @@ class Plugin implements PluginInterface
         $enableCache = new Radio(
             'enableCache',
             ['1' => _t('启用'), '0' => _t('禁用')],
-            '1',
+            '0',
             _t('启用缓存'),
             _t('是否启用 Redis 缓存功能')
         );
@@ -136,9 +146,9 @@ class Plugin implements PluginInterface
         $host = new Text(
             'host',
             null,
-            'redis',
+            '127.0.0.1',
             _t('Redis 服务地址'),
-            _t('输入 Redis 服务主机地址，默认为 127.0.0.1')
+            _t('输入 Redis 服务主机地址，默认 HOST 为 127.0.0.1')
         );
         $form->addInput($host);
 
@@ -147,7 +157,7 @@ class Plugin implements PluginInterface
             null,
             '6379',
             _t('Redis 服务端口'),
-            _t('输入 Redis 服务端口，默认为 6379')
+            _t('输入 Redis 服务端口，默认 PORT 为 6379')
         );
         $form->addInput($port);
 
@@ -251,6 +261,8 @@ class Plugin implements PluginInterface
     /**
      * 在后台页脚注入 JS（jQuery 已加载），仅在插件配置页生效
      * 实现 enableAuth 切换时联动显示/隐藏 password 行
+     *
+     * @return void
      */
     public static function injectFooterJs(): void
     {
@@ -646,7 +658,7 @@ class Plugin implements PluginInterface
     }
 
     /**
-     * 文章/页面发布时清除缓存（finishPublish 钩子传入 $contents, $widget）
+     * 文章/独立页面发布时清除缓存（finishPublish 钩子传入 $contents, $widget）
      *
      * @param array $contents 内容数组
      * @param PostEdit|PageEdit $widget 编辑组件
@@ -696,7 +708,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' CACHE: (VACATED) REASON: (ARTICLE CONTENT UPDATED) SUM: '. count($keysArrays) . 'KEYs'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (VACATED) REASON: (ARTICLE CONTENT UPDATED)                          SUM: '. count($keysArrays) . 'KEYs'
                 );
             }
         }
