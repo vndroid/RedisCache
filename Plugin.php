@@ -549,7 +549,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' CACHE: (HIT)  KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (HIT)     KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')'
                 );
             }
 
@@ -619,7 +619,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS) URI: (' . $requestUri . ') REASON: (multiple slashes detected)'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (PASS)    REASON: (DO NOT MCACHE FOR ARTICLES WITH MULTIPLE SLASHES) URI: (' . $requestUri . ')'
                 );
             }
             ob_end_flush();
@@ -640,7 +640,7 @@ class Plugin implements PluginInterface
         if (isset($config->debug) && $config->debug == '1') {
             self::writeLog(
                 'cache-' . date('Y-m-d') . '.log',
-                date('[Y-m-d H:i:s]') . ' CACHE: (MISS) KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')'
+                date('[Y-m-d H:i:s]') . ' CACHE: (MISS)    KEY: (' . $cacheKey . ') URI: (' . $requestUri . ')'
             );
         }
     }
@@ -683,20 +683,20 @@ class Plugin implements PluginInterface
             return;
         }
 
-        $keys = array_merge(
+        $keysArrays = array_merge(
             $redis->keys(self::$prefix . 'post:*') ?: [],
             $redis->keys(self::$prefix . 'page:*') ?: []
         );
 
-        if (!empty($keys)) {
-            $redis->del($keys);
+        if (!empty($keysArrays)) {
+            $redis->del($keysArrays);
 
             $config = Helper::options()->plugin(basename(__DIR__));
 
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' Cache CleanUp: ' . count($keys) . ' Keys'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (VACATED) REASON: (ARTICLE CONTENT UPDATED) SUM: '. count($keysArrays) . 'KEYs'
                 );
             }
         }
