@@ -494,7 +494,7 @@ class Plugin implements PluginInterface
         }
 
         $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-        $cacheKey   = self::$prefix . 'page:' . md5($requestUri);
+        $cacheKey   = self::$prefix . 'article:' . md5($requestUri);
 
         $cachedContent = $redis->get($cacheKey);
 
@@ -585,7 +585,7 @@ class Plugin implements PluginInterface
         if ($content === false) {
             return;
         }
-        $cacheKey = self::$prefix . 'page:' . md5($requestUri);
+        $cacheKey = self::$prefix . 'article:' . md5($requestUri);
 
         $redis->setex($cacheKey, self::$expire, $content);
         echo $content;
@@ -616,6 +616,7 @@ class Plugin implements PluginInterface
      *
      * @param Feedback $widget 评论组件
      * @return void
+     * @throws PluginException
      */
     public static function clearCacheOnComment(Feedback $widget): void
     {
@@ -635,7 +636,7 @@ class Plugin implements PluginInterface
             return;
         }
 
-        $pattern = self::$prefix . 'page:*';
+        $pattern = self::$prefix . 'article:*';
         $keys    = $redis->keys($pattern);
 
         if (!empty($keys)) {
@@ -646,7 +647,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' Cache Cleanup: ' . count($keys) . ' pages'
+                    date('[Y-m-d H:i:s]') . ' Cache CleanUp: ' . count($keys) . ' Pages'
                 );
             }
         }
