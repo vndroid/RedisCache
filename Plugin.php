@@ -87,7 +87,7 @@ class Plugin implements PluginInterface
         \Typecho\Plugin::factory('admin/menu.php')->navBar = [self::class, 'addAdminPageBar'];
 
         $configLink = '<a href="' . Helper::options()->adminUrl('options-plugin.php?config=RedisCache', true) . '">' . _t('前往设置') . '</a>';
-        return _t('插件已启用，但缓存功能未启用，请检查缓存 URI ') . $configLink;
+        return _t('插件已启用，但缓存功能未启用，请检查缓存 URI ，') . $configLink;
     }
 
     /**
@@ -97,8 +97,7 @@ class Plugin implements PluginInterface
      */
     public static function deactivate(): string
     {
-        // 获取配置，检查禁用时是否需要清理缓存
-        $config           = Helper::options()->plugin(basename(__DIR__));
+        $config = Helper::options()->plugin(basename(__DIR__));
         $shouldCleanCache = !isset($config->cleanCacheOnDeactivate) || $config->cleanCacheOnDeactivate == '1';
 
         $cleanCount = 0;
@@ -117,7 +116,7 @@ class Plugin implements PluginInterface
         if ($config->debug == '1' && $cleanCount > 0) {
             self::writeLog(
                 'cache-' . date('Y-m-d') . '.log',
-                date('[Y-m-d H:i:s]') . ' CACHE: (FLUSHED) REASON: (PLUGIN DEACTIVATED)                               SUM: (' . $cleanCount . ' KEYs)'
+                date('[Y-m-d H:i:s]') . ' CACHE: (FLUSHED) REASON: (PLUGIN DEACTIVATED)                               SUM: (TOTAL ' . $cleanCount . ' KEYs)'
             );
         }
         if ($shouldCleanCache && $cleanCount > 0) {
@@ -708,7 +707,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' CACHE: (VACATED) REASON: (ARTICLE CONTENT UPDATED)                          SUM: ('. count($keysArrays) . ' KEYs)'
+                    date('[Y-m-d H:i:s]') . ' CACHE: (VACATED) REASON: (ARTICLE CONTENT UPDATED)                          SUM: (TOTAL '. count($keysArrays) . ' KEYs)'
                 );
             }
         }
