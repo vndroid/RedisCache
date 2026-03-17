@@ -43,9 +43,14 @@ class Plugin implements PluginInterface
     private static string $prefix = "typecho_cache:";
 
     /**
-     * 缓存过期时间（默认秒）
+     * Post 缓存过期时间（秒），由设置决定
      */
-    private static int $expire = 3600; // 默认 1 小时
+    private static int $postExpire = 3600; // 默认 1 小时
+
+    /**
+     * Page 缓存过期时间（秒），默认 30 天
+     */
+    private static int $pageExpire = 2592000; // 默认 30 天
 
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
@@ -83,12 +88,13 @@ class Plugin implements PluginInterface
 
     /**
      * 禁用插件方法,如果禁用失败,直接抛出异常
+     *
      * @throws PluginException
      */
     public static function deactivate(): string
     {
         // 获取配置，检查禁用时是否需要清理缓存
-        $config = Helper::options()->plugin('RedisCache');
+        $config           = Helper::options()->plugin('RedisCache');
         $shouldCleanCache = !isset($config->cleanCacheOnDeactivate) || $config->cleanCacheOnDeactivate == '1';
 
         $cleanCount = 0;
@@ -103,6 +109,7 @@ class Plugin implements PluginInterface
                 }
             }
         }
+
         if ($shouldCleanCache && $cleanCount > 0) {
             return _t('插件已禁用，已清理了 %d 条缓存', $cleanCount);
         } else {
@@ -162,14 +169,23 @@ class Plugin implements PluginInterface
         );
         $form->addInput($password);
 
-        $expire = new Text(
-            'expire',
+        $postExpire = new Text(
+            'postExpire',
             null,
             '3600',
-            _t('过期时间（秒）'),
-            _t('缓存过期时间，默认为一小时（3600秒）')
+            _t('文章缓存时间（秒）'),
+            _t('常规文章 TTL 缓存过期时间，默认为一小时（3600 秒）')
         );
-        $form->addInput($expire);
+        $form->addInput($postExpire);
+
+        $pageExpire = new Text(
+            'pageExpire',
+            null,
+            '2592000',
+            _t('页面缓存时间（秒）'),
+            _t('独立页面 TTL 缓存过期时间，默认为一个月（2592000 秒）')
+        );
+        $form->addInput($pageExpire);
 
         $prefix = new Text(
             'prefix',
@@ -219,6 +235,7 @@ class Plugin implements PluginInterface
 
     /**
      * 在后台导航栏插件状态显示
+     *
      * @throws PluginException
      */
     public static function addAdminPageBar(): void
@@ -270,14 +287,19 @@ class Plugin implements PluginInterface
         }
 
         // 设置缓存参数
-        if (isset($config->expire)) {
-            self::$expire = intval($config->expire);
+        if (isset($config->postExpire)) {
+            self::$postExpire = intval($config->postExpire);
+        }
+
+        if (isset($config->pageExpire)) {
+            self::$pageExpire = intval($config->pageExpire);
         }
 
         if (isset($config->prefix)) {
             self::$prefix = $config->prefix;
         }
 
+        // 创建日志目录（writeLog 会自行处理，此处无需手动创建）
         $logFilename = 'redis-' . date('Y-m-d') . '.log';
 
         try {
@@ -316,7 +338,7 @@ class Plugin implements PluginInterface
             }
 
             // $retrievedValue 此处已通过 !== 比较确认为 string
-            $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis writable-test successful: ' . (string) $retrievedValue;
+            $logMessage .= "\n" . date('[Y-m-d H:i:s]') . ' redis writable-test successful: ' . $retrievedValue;
 
             // 删除测试数据
             $redis->del($testKey);
@@ -338,7 +360,7 @@ class Plugin implements PluginInterface
 
             self::$redis = $redis;
             return $redis;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             self::writeLog($logFilename, date('[Y-m-d H:i:s]') . ' redis connect failed: ' . $e->getMessage());
             return null;
         }
@@ -474,6 +496,38 @@ class Plugin implements PluginInterface
     }
 
     /**
+     * 根据内容类型生成缓存键
+     *
+     * - page → prefix + page:md5(uri)
+     * - post → prefix + post:md5(uri)
+     *
+     * @param string  $requestUri
+     * @param Archive $archive
+     * @return string
+     */
+    private static function makeCacheKey(string $requestUri, Archive $archive): string
+    {
+        if ($archive->is('page')) {
+            return self::$prefix . 'page:' . md5($requestUri);
+        }
+        return self::$prefix . 'post:' . md5($requestUri);
+    }
+
+    /**
+     * 根据内容类型返回对应的 TTL（秒）
+     *
+     * - page → $pageExpire (default 30 days)
+     * - post → $postExpire (default 1 hour)
+     *
+     * @param Archive $archive
+     * @return int
+     */
+    private static function getExpireForArchive(Archive $archive): int
+    {
+        return $archive->is('page') ? self::$pageExpire : self::$postExpire;
+    }
+
+    /**
      * 在渲染前检查缓存是否存在
      *
      * @param Archive $archive
@@ -493,9 +547,8 @@ class Plugin implements PluginInterface
             return;
         }
 
-        $requestUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-        $cacheKey   = self::$prefix . 'article:' . md5($requestUri);
-
+        $requestUri    = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+        $cacheKey      = self::makeCacheKey($requestUri, $archive);
         $cachedContent = $redis->get($cacheKey);
 
         if ($cachedContent !== false) {
@@ -585,9 +638,11 @@ class Plugin implements PluginInterface
         if ($content === false) {
             return;
         }
-        $cacheKey = self::$prefix . 'article:' . md5($requestUri);
 
-        $redis->setex($cacheKey, self::$expire, $content);
+        $cacheKey = self::makeCacheKey($requestUri, $archive);
+        $ttl      = self::getExpireForArchive($archive);
+
+        $redis->setex($cacheKey, $ttl, $content);
         echo $content;
 
         if (isset($config->debug) && $config->debug == '1') {
@@ -636,8 +691,10 @@ class Plugin implements PluginInterface
             return;
         }
 
-        $pattern = self::$prefix . 'article:*';
-        $keys    = $redis->keys($pattern);
+        $keys = array_merge(
+            $redis->keys(self::$prefix . 'post:*') ?: [],
+            $redis->keys(self::$prefix . 'page:*') ?: []
+        );
 
         if (!empty($keys)) {
             $redis->del($keys);
@@ -647,7 +704,7 @@ class Plugin implements PluginInterface
             if (isset($config->debug) && $config->debug == '1') {
                 self::writeLog(
                     'cache-' . date('Y-m-d') . '.log',
-                    date('[Y-m-d H:i:s]') . ' Cache CleanUp: ' . count($keys) . ' Pages'
+                    date('[Y-m-d H:i:s]') . ' Cache CleanUp: ' . count($keys) . ' Keys'
                 );
             }
         }
