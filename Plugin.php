@@ -113,10 +113,19 @@ class Plugin implements PluginInterface
      */
     public static function config(Form $form): void
     {
+        $enableCache = new Radio(
+            'enableCache',
+            ['1' => _t('启用'), '0' => _t('禁用')],
+            '1',
+            _t('启用缓存'),
+            _t('是否启用 Redis 缓存功能')
+        );
+        $form->addInput($enableCache);
+
         $host = new Text(
             'host',
             null,
-            '127.0.0.1',
+            'redis',
             _t('Redis 服务地址'),
             _t('输入 Redis 服务主机地址，默认为 127.0.0.1')
         );
@@ -166,15 +175,6 @@ class Plugin implements PluginInterface
             _t('按路径前缀进行缓存，防止缓存不需要的页面，多个前缀请用英文逗号分隔')
         );
         $form->addInput($uriPrefix);
-
-        $enableCache = new Radio(
-            'enableCache',
-            ['1' => _t('启用'), '0' => _t('禁用')],
-            '1',
-            _t('启用缓存'),
-            _t('是否启用 Redis 缓存功能')
-        );
-        $form->addInput($enableCache);
 
         $debug = new Radio(
             'debug',
