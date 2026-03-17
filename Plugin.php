@@ -155,7 +155,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
     /**
      * 初始化Redis连接
      */
-    public static function initRedis()
+    public static function initRedis(): ?Redis
     {
         if (self::$redis !== null) {
             return self::$redis;
@@ -260,7 +260,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
      * @param Widget_Archive $archive
      * @return void
      */
-    public static function beforeRender($archive)
+    public static function beforeRender($archive): void
     {
         // 管理员登录时不使用缓存
         if (Typecho_Widget::widget("Widget_User")->hasLogin()) {
