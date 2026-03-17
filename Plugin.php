@@ -44,6 +44,7 @@ class Plugin implements PluginInterface
      */
     private static int $expire = 3600; // 默认 1 小时
 
+    private static string $pluginName = 'RedisCache';
     /**
      * 激活插件方法,如果激活失败,直接抛出异常
      *
