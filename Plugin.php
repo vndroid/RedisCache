@@ -286,7 +286,7 @@ class RedisCache_Plugin implements Typecho_Plugin_Interface
             $config = $options->plugin("RedisCache");
 
             if (isset($config->debug) && $config->debug == "1") {
-                $logFile = __DIR__ . "/cache-" . date("Y-m-d") . ".log";
+                $logFile = __DIR__ . "/logs/cache-" . date("Y-m-d") . ".log";
                 $logMessage = date("[Y-m-d H:i:s]") . " HIT: " . $requestUri . " (Key: " . $cacheKey . ")";
                 file_put_contents($logFile, $logMessage . "\n", FILE_APPEND);
             }
