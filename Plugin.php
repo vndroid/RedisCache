@@ -347,16 +347,17 @@ class Plugin implements PluginInterface
 
     /**
      * 探测当前 Redis 实例是否支持 RedisJSON（或老版本 ReJSON）
+     * 仅支持 Redis 8.0+
      *
      * 返回结构：
      * - supported: bool 是否支持 JSON 命令
-     * - via: string 使用的探测方式（module_list/command_info/info_modules/error）
-     * - module: ?string 命中的模块名（ReJSON/RedisJSON），若有
-     * - version: ?string 模块版本（如果可获取）
-     * - reason: ?string 不支持/失败原因（如果有）
+     * - via: string 使用的探测方式（module_list/command_info/error）
+     * - module: ?string 命中的模块名（RedisJSON/ReJSON），若有
+     * - version: ?string 模块版本
+     * - reason: ?string 不支持/失败原因
      *
      * @param Redis $redis
-     * @return array
+     * @return array{supported: bool, via: string, module: ?string, version: ?string, reason: ?string}
      */
     private static function detectRedisJsonSupport(Redis $redis): array
     {
@@ -368,114 +369,78 @@ class Plugin implements PluginInterface
             'reason'    => null,
         ];
 
-        // 1) 优先尝试 MODULE LIST
+        // 1) 主推荐：MODULE LIST（Redis 8.0+ 标准方式）
         try {
-            if (method_exists($redis, 'rawCommand')) {
+            if (!method_exists($redis, 'rawCommand')) {
+                $result['via']    = 'module_list';
+                $result['reason'] = 'rawCommand_not_available';
+            } else {
                 $modules = $redis->rawCommand('MODULE', 'LIST');
 
-                if (is_array($modules)) {
+                if (!is_array($modules)) {
+                    $result['via']    = 'module_list';
+                    $result['reason'] = 'unexpected_reply';
+                } else {
                     foreach ($modules as $moduleInfo) {
                         if (!is_array($moduleInfo)) {
                             continue;
                         }
 
-                        $name = null;
-                        $ver = null;
+                        // Redis 8.0+ 返回关联数组格式 ['name' => '...', 'ver' => '...', ...]
+                        $name = (string) ($moduleInfo['name'] ?? '');
+                        $version = (string) ($moduleInfo['ver'] ?? '');
 
-                        if (isset($moduleInfo['name'])) {
-                            $name = (string) $moduleInfo['name'];
-                        }
-                        if (isset($moduleInfo['ver'])) {
-                            $ver = (string) $moduleInfo['ver'];
-                        }
-
-                        if ($name === null) {
-                            for ($i = 0; $i + 1 < count($moduleInfo); $i += 2) {
-                                $k = $moduleInfo[$i] ?? null;
-                                $v = $moduleInfo[$i + 1] ?? null;
-                                if ($k === 'name') {
-                                    $name = is_string($v) ? $v : (string) $v;
-                                } elseif ($k === 'ver') {
-                                    $ver = is_string($v) ? $v : (string) $v;
-                                }
-                            }
-                        }
-
-                        if ($name !== null) {
-                            $lower = strtolower($name);
-                            if ($lower === 'rejson' || $lower === 'redisjson') {
-                                $result['supported'] = true;
-                                $result['via']       = 'module_list';
-                                $result['module']    = $name;
-                                $result['version']   = $ver;
-                                return $result;
-                            }
+                        // 检查是否为 JSON 模块
+                        if (!empty($name) && (strtolower($name) === 'rejson' || strtolower($name) === 'redisjson')) {
+                            return [
+                                'supported' => true,
+                                'via'       => 'module_list',
+                                'module'    => $name,
+                                'version'   => $version ?: null,
+                                'reason'    => null,
+                            ];
                         }
                     }
 
                     $result['via']    = 'module_list';
                     $result['reason'] = 'module_not_loaded';
-                } else {
-                    $result['via']    = 'module_list';
-                    $result['reason'] = 'unexpected_reply';
                 }
-            } else {
-                $result['via']    = 'module_list';
-                $result['reason'] = 'rawCommand_not_available';
             }
         } catch (Throwable $e) {
             $result['via']    = 'module_list';
             $result['reason'] = 'module_list_error: ' . $e->getMessage();
         }
 
-        // 2) 降级：COMMAND INFO JSON.GET
+        // 2) 备选：COMMAND INFO JSON.GET（快速备选方案）
         try {
-            if (method_exists($redis, 'rawCommand')) {
-                $info = $redis->rawCommand('COMMAND', 'INFO', 'JSON.GET');
-                if (is_array($info) && count($info) > 0 && $info[0] !== null && $info !== [false]) {
-                    $result['supported'] = true;
-                    $result['via']       = 'command_info';
-                    $result['module']    = $result['module'] ?? 'RedisJSON';
-                    return $result;
-                }
+            if (!method_exists($redis, 'rawCommand')) {
+                // 如果 rawCommand 不可用，直接返回失败
+                $result['via']    ??= 'error';
+                $result['reason'] ??= 'rawCommand_unavailable';
+                return $result;
+            }
 
-                if ($result['via'] === null) {
-                    $result['via']    = 'command_info';
-                    $result['reason'] = 'command_not_found';
-                }
+            $info = $redis->rawCommand('COMMAND', 'INFO', 'JSON.GET');
+            if (is_array($info) && count($info) > 0 && ($info[0] ?? null) !== null && $info !== [false]) {
+                return [
+                    'supported' => true,
+                    'via'       => 'command_info',
+                    'module'    => 'RedisJSON',
+                    'version'   => null,
+                    'reason'    => null,
+                ];
             }
+
+            // COMMAND INFO 失败，保留之前的失败原因
+            $result['via']    ??= 'command_info';
+            $result['reason'] ??= 'command_not_found';
         } catch (Throwable $e) {
-            if ($result['via'] === null || $result['via'] === 'module_list') {
-                $result['via']    = 'command_info';
-                $result['reason'] = 'command_info_error: ' . $e->getMessage();
-            }
+            $result['via']    ??= 'command_info';
+            $result['reason'] ??= 'command_info_error: ' . $e->getMessage();
         }
 
-        // 3) 再降级：INFO MODULES
-        try {
-            $infoStr = $redis->info('modules');
-            if (is_array($infoStr)) {
-                $flat = json_encode($infoStr);
-                if (is_string($flat)) {
-                    $lower = strtolower($flat);
-                    if (str_contains($lower, 'rejson') || str_contains($lower, 'redisjson')) {
-                        $result['supported'] = true;
-                        $result['via']       = 'info_modules';
-                        $result['module']    = $result['module'] ?? 'RedisJSON';
-                        return $result;
-                    }
-                }
-
-                $result['via']    = $result['via'] ?? 'info_modules';
-                $result['reason'] = $result['reason'] ?? 'module_not_found_in_info';
-            }
-        } catch (Throwable $e) {
-            $result['via']    = $result['via'] ?? 'info_modules';
-            $result['reason'] = $result['reason'] ?? ('info_modules_error: ' . $e->getMessage());
-        }
-
-        $result['via']    = $result['via'] ?? 'error';
-        $result['reason'] = $result['reason'] ?? 'unknown';
+        $result['via']    ??= 'error';
+        $result['reason'] ??= 'unknown';
         return $result;
     }
 
